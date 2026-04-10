@@ -1,4 +1,9 @@
-import 'dotenv/config';
+import path from 'path';
+import dotenv from 'dotenv';
+
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+dotenv.config({ path: path.resolve(__dirname, '..', envFile) });
+
 import express from 'express';
 import cors from 'cors';
 import connectDB from './config/db';
@@ -12,7 +17,14 @@ import userRoutes from './routes/users';
 
 const app = express();
 
-app.use(cors());
+const corsOrigin = process.env.CORS_ORIGIN;
+app.use(
+  cors(
+    corsOrigin
+      ? { origin: corsOrigin.split(','), credentials: true }
+      : undefined,
+  ),
+);
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);

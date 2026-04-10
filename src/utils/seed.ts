@@ -1,7 +1,8 @@
-import 'dotenv/config';
 import path from 'path';
 import dotenv from 'dotenv';
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+dotenv.config({ path: path.join(__dirname, '../..', envFile) });
 
 import mongoose from 'mongoose';
 import User from '../models/User';

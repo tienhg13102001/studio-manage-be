@@ -2,6 +2,7 @@
   "name": "studio-management-backend",
   "version": "1.0.0",
   "description": "Studio yearbook photography management - backend",
+  "license": "UNLICENSED",
   "main": "dist/app.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/app.ts",
