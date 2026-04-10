@@ -24,6 +24,7 @@ const defaultCategories: DefaultCategory[] = [
 
 const seed = async (): Promise<void> => {
   await mongoose.connect(process.env.MONGO_URI as string);
+  console.log("🚀 ~ seed ~ process.env.MONGO_URI:", process.env.MONGO_URI)
   console.log('Connected to MongoDB');
 
   const username = process.env.SEED_ADMIN_USERNAME ?? 'superadmin';

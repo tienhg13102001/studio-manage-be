@@ -7,6 +7,13 @@ export const getPhotographers = async (_req: Request, res: Response): Promise<vo
     .sort({ username: 1 });
   res.json(users);
 };
+
+export const getSales = async (_req: Request, res: Response): Promise<void> => {
+  const users = await User.find({ roles: { $in: [2, 4] }, isActive: true })
+    .select('_id username name roles')
+    .sort({ username: 1 });
+  res.json(users);
+};
 export const getAll = async (_req: Request, res: Response): Promise<void> => {
   const users = await User.find().sort({ createdAt: -1 });
   res.json(users);

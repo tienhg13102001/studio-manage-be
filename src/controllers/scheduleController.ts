@@ -39,6 +39,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
       .populate('customerId', 'className school')
       .populate('leadPhotographer', 'username name role')
       .populate('supportPhotographers', 'username name role')
+      .populate('bookedBy', 'username name role')
       .sort({ shootDate: 1 })
       .skip(skip)
       .limit(Number(limit)),
@@ -51,7 +52,8 @@ export const getOne = async (req: Request, res: Response): Promise<void> => {
   const schedule = await Schedule.findById(req.params.id)
     .populate('customerId', 'className school contactName contactPhone')
     .populate('leadPhotographer', 'username role')
-    .populate('supportPhotographers', 'username role');
+    .populate('supportPhotographers', 'username role')
+    .populate('bookedBy', 'username name role');
   if (!schedule) {
     res.status(404).json({ message: 'Not found' });
     return;

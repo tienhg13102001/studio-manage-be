@@ -8,6 +8,7 @@ export interface ISchedule extends Document {
   location?: string;
   leadPhotographer?: Types.ObjectId;
   supportPhotographers: Types.ObjectId[];
+  bookedBy?: Types.ObjectId;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   notes?: string;
 }
@@ -21,6 +22,7 @@ const scheduleSchema = new Schema<ISchedule>(
     location: { type: String, trim: true },
     leadPhotographer: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     supportPhotographers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    bookedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     status: {
       type: String,
       enum: ['pending', 'confirmed', 'completed', 'cancelled'],
