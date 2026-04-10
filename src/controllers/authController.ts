@@ -9,6 +9,7 @@ const signToken = (id: string): string =>
   });
 
 export const login = async (req: Request, res: Response): Promise<void> => {
+  console.log("login by", req.body)
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     res.status(400).json({ errors: errors.array() });
