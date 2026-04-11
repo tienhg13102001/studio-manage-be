@@ -14,17 +14,13 @@ import scheduleRoutes from './routes/schedules';
 import transactionRoutes from './routes/transactions';
 import categoryRoutes from './routes/categories';
 import userRoutes from './routes/users';
+import studentRoutes from './routes/students';
+import publicRoutes from './routes/public';
 
 const app = express();
 
 const corsOrigin = process.env.CORS_ORIGIN;
-app.use(
-  cors(
-    corsOrigin
-      ? { origin: corsOrigin.split(','), credentials: true }
-      : undefined,
-  ),
-);
+app.use(cors(corsOrigin ? { origin: corsOrigin.split(','), credentials: true } : undefined));
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);
@@ -33,6 +29,8 @@ app.use('/api/schedules', scheduleRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/students', studentRoutes);
+app.use('/api/public', publicRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
