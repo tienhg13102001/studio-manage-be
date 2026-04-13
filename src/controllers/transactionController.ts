@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import Transaction from '../models/Transaction';
 
+const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1);
+
 interface TransactionQuery {
   customerId?: string;
   type?: string;
@@ -28,11 +30,15 @@ const buildFilter = (q: TransactionQuery) => {
 export const getAll = async (req: Request, res: Response): Promise<void> => {
   const { page = '1', limit = '20', ...rest } = req.query as TransactionQuery;
   const filter = buildFilter(rest);
+  if (!isPrivileged(req.user!.roles)) {
+    filter.createdBy = req.user!._id;
+  }
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
     Transaction.find(filter)
       .populate('customerId', 'className school')
       .populate('categoryId', 'name type')
+      .populate('createdBy', 'name username')
       .sort({ date: -1 })
       .skip(skip)
       .limit(Number(limit)),
@@ -44,7 +50,8 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const tx = await Transaction.findById(req.params.id)
     .populate('customerId', 'className school')
-    .populate('categoryId', 'name type');
+    .populate('categoryId', 'name type')
+    .populate('createdBy', 'name username');
   if (!tx) {
     res.status(404).json({ message: 'Not found' });
     return;
@@ -53,12 +60,20 @@ export const getOne = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
-  const tx = await Transaction.create(req.body);
+  const createdBy =
+    isPrivileged(req.user!.roles) && req.body.createdBy
+      ? req.body.createdBy
+      : req.user!._id;
+  const tx = await Transaction.create({ ...req.body, createdBy });
   res.status(201).json(tx);
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
-  const tx = await Transaction.findByIdAndUpdate(req.params.id, req.body, {
+  const updateData = { ...req.body };
+  if (!isPrivileged(req.user!.roles)) {
+    delete updateData.createdBy;
+  }
+  const tx = await Transaction.findByIdAndUpdate(req.params.id, updateData, {
     new: true,
     runValidators: true,
   });
@@ -85,9 +100,10 @@ export const getSummary = async (req: Request, res: Response): Promise<void> => 
   if (dateTo) matchDate.$lte = new Date(dateTo);
 
   const dateFilter = Object.keys(matchDate).length ? { date: matchDate } : {};
+  const createdByFilter = isPrivileged(req.user!.roles) ? {} : { createdBy: req.user!._id };
 
   const rows = await Transaction.aggregate([
-    { $match: dateFilter },
+    { $match: { ...dateFilter, ...createdByFilter } },
     {
       $group: {
         _id: { customerId: '$customerId', type: '$type' },

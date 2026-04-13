@@ -1,4 +1,4 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface ICustomer extends Document {
   className: string;
@@ -8,6 +8,7 @@ export interface ICustomer extends Document {
   contactEmail?: string;
   studentCount: number;
   notes?: string;
+  createdBy?: Types.ObjectId;
 }
 
 const customerSchema = new Schema<ICustomer>(
@@ -19,6 +20,7 @@ const customerSchema = new Schema<ICustomer>(
     contactEmail: { type: String, trim: true, lowercase: true },
     studentCount: { type: Number, default: 0 },
     notes: { type: String },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true },
 );

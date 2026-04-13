@@ -17,6 +17,7 @@ import userRoutes from './routes/users';
 import studentRoutes from './routes/students';
 import publicRoutes from './routes/public';
 import packageRoutes from './routes/packages';
+import dashboardRoutes from './routes/dashboard';
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

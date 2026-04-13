@@ -22,7 +22,7 @@ export const getOne = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
-  const customer = await Customer.create(req.body);
+  const customer = await Customer.create({ ...req.body, createdBy: req.user!._id });
   res.status(201).json(customer);
 };
 

@@ -3,7 +3,7 @@ import Category from '../models/Category';
 
 export const getAll = async (req: Request, res: Response): Promise<void> => {
   const { type } = req.query as { type?: 'income' | 'expense' };
-  const filter = type ? { type } : {};
+  const filter: Record<string, unknown> = type ? { type } : {};
   const cats = await Category.find(filter).sort({ type: 1, name: 1 });
   res.json(cats);
 };
