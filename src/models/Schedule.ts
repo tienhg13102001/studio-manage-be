@@ -2,6 +2,7 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface ISchedule extends Document {
   customerId: Types.ObjectId;
+  packageId?: Types.ObjectId;
   shootDate: Date;
   startTime?: string;
   endTime?: string;
@@ -16,6 +17,7 @@ export interface ISchedule extends Document {
 const scheduleSchema = new Schema<ISchedule>(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
+    packageId: { type: Schema.Types.ObjectId, ref: 'Package', default: null },
     shootDate: { type: Date, required: true },
     startTime: { type: String, trim: true },
     endTime: { type: String, trim: true },

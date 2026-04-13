@@ -9,6 +9,7 @@
     "start": "node dist/app.js",
     "build": "tsc",
     "seed": "ts-node src/utils/seed.ts",
+    "migrate:package-duration": "ts-node src/utils/migratePackageDuration.ts",
     "format": "prettier --write \"src/**/*.{ts,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,json}\""
   },

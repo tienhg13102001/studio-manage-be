@@ -37,6 +37,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const [data, total] = await Promise.all([
     Schedule.find(filter)
       .populate('customerId', 'className school')
+      .populate('packageId', 'name pricePerMember')
       .populate('leadPhotographer', 'username name role')
       .populate('supportPhotographers', 'username name role')
       .populate('bookedBy', 'username name role')
@@ -51,6 +52,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const schedule = await Schedule.findById(req.params.id)
     .populate('customerId', 'className school contactName contactPhone')
+    .populate('packageId', 'name pricePerMember duration costume crewRatio editingScope deliveryDays')
     .populate('leadPhotographer', 'username role')
     .populate('supportPhotographers', 'username role')
     .populate('bookedBy', 'username name role');
