@@ -4,8 +4,8 @@ export interface IStudent extends Document {
   customerId: mongoose.Types.ObjectId;
   name: string;
   gender: 'male' | 'female';
-  height?: number;
-  weight?: number;
+  height: number;
+  weight: number;
   notes?: string;
 }
 
@@ -14,8 +14,8 @@ const studentSchema = new Schema<IStudent>(
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
     name: { type: String, required: true, trim: true },
     gender: { type: String, enum: ['male', 'female'], required: true },
-    height: { type: Number },
-    weight: { type: Number },
+    height: { type: Number, required: true, min: 1 },
+    weight: { type: Number, required: true, min: 1 },
     notes: { type: String },
   },
   { timestamps: true },
