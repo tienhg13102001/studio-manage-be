@@ -87,19 +87,13 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
       // Filter lịch mà user là lead hoặc support photographer
       scheduleFilter = {
         ...shootDateFilter,
-        $or: [
-          { leadPhotographer: filterUserId },
-          { supportPhotographers: filterUserId },
-        ],
+        $or: [{ leadPhotographer: filterUserId }, { supportPhotographers: filterUserId }],
       };
     } else if (!privileged && isPhotographer(userRoles)) {
       const selfId = req.user!._id;
       scheduleFilter = {
         ...shootDateFilter,
-        $or: [
-          { leadPhotographer: selfId },
-          { supportPhotographers: selfId },
-        ],
+        $or: [{ leadPhotographer: selfId }, { supportPhotographers: selfId }],
       };
     }
 

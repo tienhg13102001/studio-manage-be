@@ -10,7 +10,7 @@ router.get('/photographers', protect, c.getPhotographers);
 router.get('/sales', protect, c.getSales);
 
 // All other user management routes require superadmin
-router.use(protect, requireRole(0));
+router.use(protect, requireRole(0, 1));
 
 router.route('/').get(c.getAll).post(c.create);
 router.route('/:id').get(c.getOne).put(c.update).delete(c.remove);

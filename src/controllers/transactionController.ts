@@ -61,9 +61,7 @@ export const getOne = async (req: Request, res: Response): Promise<void> => {
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   const createdBy =
-    isPrivileged(req.user!.roles) && req.body.createdBy
-      ? req.body.createdBy
-      : req.user!._id;
+    isPrivileged(req.user!.roles) && req.body.createdBy ? req.body.createdBy : req.user!._id;
   const tx = await Transaction.create({ ...req.body, createdBy });
   res.status(201).json(tx);
 };
