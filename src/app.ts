@@ -15,7 +15,7 @@ import studentRoutes from './routes/students';
 import transactionRoutes from './routes/transactions';
 import userRoutes from './routes/users';
 
-const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+const envFile = ".env"
 dotenv.config({ path: path.resolve(__dirname, '..', envFile) });
 
 const app = express();
