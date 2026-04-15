@@ -1,10 +1,10 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface IPackage extends Document {
   name: string;
   pricePerMember: number;
   duration?: 'full_day' | 'half_day' | 'two_thirds_day';
-  costume?: string;
+  costumes?: Types.ObjectId[];
   crewRatio?: string;
   editingScope?: 'full' | 'partial';
   deliveryDays?: number;
@@ -17,7 +17,7 @@ const packageSchema = new Schema<IPackage>(
     name: { type: String, required: true, trim: true },
     pricePerMember: { type: Number, required: true },
     duration: { type: String, enum: ['full_day', 'half_day', 'two_thirds_day'] },
-    costume: { type: String, trim: true },
+    costumes: [{ type: Schema.Types.ObjectId, ref: 'Costume' }],
     crewRatio: { type: String, trim: true },
     editingScope: { type: String, enum: ['full', 'partial'], default: 'full' },
     deliveryDays: { type: Number },

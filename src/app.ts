@@ -17,6 +17,7 @@ import userRoutes from './routes/users';
 import studentRoutes from './routes/students';
 import publicRoutes from './routes/public';
 import packageRoutes from './routes/packages';
+import costumeRoutes from './routes/costumes';
 import dashboardRoutes from './routes/dashboard';
 
 const app = express();
@@ -33,6 +34,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/packages', packageRoutes);
+app.use('/api/costumes', costumeRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 

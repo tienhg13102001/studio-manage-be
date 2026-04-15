@@ -2,12 +2,12 @@ import { Request, Response } from 'express';
 import Package from '../models/Package';
 
 export const getAll = async (_req: Request, res: Response): Promise<void> => {
-  const packages = await Package.find().sort({ name: 1 });
+  const packages = await Package.find().sort({ name: 1 }).populate('costumes');
   res.json(packages);
 };
 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
-  const pkg = await Package.findById(req.params.id);
+  const pkg = await Package.findById(req.params.id).populate('costumes');
   if (!pkg) {
     res.status(404).json({ message: 'Not found' });
     return;
