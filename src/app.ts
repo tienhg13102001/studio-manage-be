@@ -1,24 +1,22 @@
-import path from 'path';
+import cors from 'cors';
 import dotenv from 'dotenv';
+import express from 'express';
+import path from 'path';
+import connectDB from './config/db';
+import authRoutes from './routes/auth';
+import categoryRoutes from './routes/categories';
+import costumeRoutes from './routes/costumes';
+import customerRoutes from './routes/customers';
+import dashboardRoutes from './routes/dashboard';
+import packageRoutes from './routes/packages';
+import publicRoutes from './routes/public';
+import scheduleRoutes from './routes/schedules';
+import studentRoutes from './routes/students';
+import transactionRoutes from './routes/transactions';
+import userRoutes from './routes/users';
 
 const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
 dotenv.config({ path: path.resolve(__dirname, '..', envFile) });
-
-import express from 'express';
-import cors from 'cors';
-import connectDB from './config/db';
-
-import authRoutes from './routes/auth';
-import customerRoutes from './routes/customers';
-import scheduleRoutes from './routes/schedules';
-import transactionRoutes from './routes/transactions';
-import categoryRoutes from './routes/categories';
-import userRoutes from './routes/users';
-import studentRoutes from './routes/students';
-import publicRoutes from './routes/public';
-import packageRoutes from './routes/packages';
-import costumeRoutes from './routes/costumes';
-import dashboardRoutes from './routes/dashboard';
 
 const app = express();
 
