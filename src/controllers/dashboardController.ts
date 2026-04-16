@@ -8,7 +8,8 @@ const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || 
 const isPhotographer = (roles: number[]): boolean => roles.includes(3);
 
 export const getStats = async (req: Request, res: Response): Promise<void> => {
-  const { userId } = req.query as { userId?: string };
+  const { userId, months: monthsStr } = req.query as { userId?: string; months?: string };
+  const months = Math.max(1, Math.min(12, parseInt(monthsStr ?? '6', 10) || 6));
   const privileged = isPrivileged(req.user!.roles);
   const userRoles = req.user!.roles as number[];
 
@@ -34,38 +35,88 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
   const income = thisMonthStats.find((r) => r._id === 'income')?.total ?? 0;
   const expense = thisMonthStats.find((r) => r._id === 'expense')?.total ?? 0;
 
-  // Last 6 months breakdown for chart
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-  const monthlyRaw = await Transaction.aggregate([
-    { $match: { ...txFilter, date: { $gte: sixMonthsAgo } } },
-    {
-      $group: {
-        _id: { year: { $year: '$date' }, month: { $month: '$date' }, type: '$type' },
-        total: { $sum: '$amount' },
-      },
-    },
-    {
-      $group: {
-        _id: { year: '$_id.year', month: '$_id.month' },
-        income: { $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] } },
-        expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
-      },
-    },
-    { $sort: { '_id.year': 1, '_id.month': 1 } },
-  ]);
+  const granularity: 'day' | 'month' = months === 1 ? 'day' : 'month';
 
-  // Fill missing months so chart always shows 6 bars
+  // Last N months (or 1 month by day) breakdown for chart
+  const nMonthsAgo = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
   const monthly: Array<{ label: string; income: number; expense: number }> = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const yr = d.getFullYear();
-    const mo = d.getMonth() + 1;
-    const found = monthlyRaw.find((r) => r._id.year === yr && r._id.month === mo);
-    monthly.push({
-      label: `${yr}-${String(mo).padStart(2, '0')}`,
-      income: found?.income ?? 0,
-      expense: found?.expense ?? 0,
-    });
+
+  if (granularity === 'day') {
+    // Rolling window: từ ngày này tháng trước → hôm nay
+    const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 0, 0);
+    const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    const dayRaw = await Transaction.aggregate([
+      { $match: { ...txFilter, date: { $gte: oneMonthAgo, $lte: dayEnd } } },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$date' },
+            month: { $month: '$date' },
+            day: { $dayOfMonth: '$date' },
+            type: '$type',
+          },
+          total: { $sum: '$amount' },
+        },
+      },
+      {
+        $group: {
+          _id: { year: '$_id.year', month: '$_id.month', day: '$_id.day' },
+          income: { $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] } },
+          expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // Fill every day from oneMonthAgo to today
+    const cursor = new Date(oneMonthAgo);
+    while (cursor <= dayEnd) {
+      const yr = cursor.getFullYear();
+      const mo = cursor.getMonth() + 1;
+      const day = cursor.getDate();
+      const found = dayRaw.find(
+        (r) => r._id.year === yr && r._id.month === mo && r._id.day === day,
+      );
+      monthly.push({
+        label: `${yr}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+        income: found?.income ?? 0,
+        expense: found?.expense ?? 0,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  } else {
+    // Aggregate by month
+    const monthlyRaw = await Transaction.aggregate([
+      { $match: { ...txFilter, date: { $gte: nMonthsAgo } } },
+      {
+        $group: {
+          _id: { year: { $year: '$date' }, month: { $month: '$date' }, type: '$type' },
+          total: { $sum: '$amount' },
+        },
+      },
+      {
+        $group: {
+          _id: { year: '$_id.year', month: '$_id.month' },
+          income: { $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] } },
+          expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]);
+
+    // Fill missing months so chart always shows N bars
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const yr = d.getFullYear();
+      const mo = d.getMonth() + 1;
+      const found = monthlyRaw.find((r) => r._id.year === yr && r._id.month === mo);
+      monthly.push({
+        label: `${yr}-${String(mo).padStart(2, '0')}`,
+        income: found?.income ?? 0,
+        expense: found?.expense ?? 0,
+      });
+    }
   }
 
   // Customer count (created by user)
@@ -111,6 +162,7 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
   res.json({
     thisMonth: { income, expense, profit: income - expense },
     monthly,
+    granularity,
     customerCount,
     scheduleCount,
     showSchedules,
