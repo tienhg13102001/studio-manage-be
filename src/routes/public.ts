@@ -1,8 +1,12 @@
 import { Router, Request, Response } from 'express';
 import Customer from '../models/Customer';
 import Student from '../models/Student';
+import * as feedbackController from '../controllers/feedbackController';
 
 const router = Router();
+
+// Submit feedback (public, no auth)
+router.post('/feedback', feedbackController.submit);
 
 // Get all classes (for public form selector)
 router.get('/customers', async (_req: Request, res: Response): Promise<void> => {

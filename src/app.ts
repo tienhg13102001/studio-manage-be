@@ -8,6 +8,7 @@ import categoryRoutes from './routes/categories';
 import costumeRoutes from './routes/costumes';
 import customerRoutes from './routes/customers';
 import dashboardRoutes from './routes/dashboard';
+import feedbackRoutes from './routes/feedbacks';
 import packageRoutes from './routes/packages';
 import publicRoutes from './routes/public';
 import scheduleRoutes from './routes/schedules';
@@ -35,6 +36,7 @@ app.use('/api/packages', packageRoutes);
 app.use('/api/costumes', costumeRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/feedbacks', feedbackRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
