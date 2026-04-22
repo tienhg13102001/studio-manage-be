@@ -20,7 +20,7 @@ export interface IFeedback extends Document {
 const feedbackItemSchema = new Schema<IFeedbackItem>(
   {
     rating: { type: Number, min: 1, max: 5, required: true },
-    description: { type: String, trim: true },
+    description: { type: String, trim: true, required: true },
   },
   { _id: false },
 );

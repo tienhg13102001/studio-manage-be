@@ -8,16 +8,17 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   else if (isRead === 'false') query.isRead = false;
 
   const skip = (Number(page) - 1) * Number(limit);
-  const [data, total, unreadCount] = await Promise.all([
+  const [data, total, totalUnread] = await Promise.all([
     Feedback.find(query)
       .populate('customerId', 'className school')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit)),
-    Feedback.countDocuments(query),
+    Feedback.countDocuments({}),
     Feedback.countDocuments({ isRead: false }),
   ]);
-  res.json({ data, total, page: Number(page), limit: Number(limit), unreadCount });
+  const totalRead = total - totalUnread;
+  res.json({ data, total, totalRead, totalUnread, page: Number(page), limit: Number(limit) });
 };
 
 export const markRead = async (req: Request, res: Response): Promise<void> => {
@@ -57,17 +58,21 @@ export const submit = async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ message: 'Đánh giá phải từ 1 đến 5' });
     return;
   }
+  if (!crewFeedback?.description?.trim() || !albumFeedback?.description?.trim()) {
+    res.status(400).json({ message: 'Vui lòng chia sẻ thêm về ekip và album' });
+    return;
+  }
 
   const feedback = await Feedback.create({
     customerId: customerId || undefined,
     phone,
     crewFeedback: {
       rating: crewRating,
-      description: crewFeedback?.description,
+      description: crewFeedback.description.trim(),
     },
     albumFeedback: {
       rating: albumRating,
-      description: albumFeedback?.description,
+      description: albumFeedback.description.trim(),
     },
     content,
     suggestion,

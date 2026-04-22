@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
 import Transaction from '../models/Transaction';
 
-const isPrivileged = (roles: number[]): boolean =>
-  roles.some((r) => r === 0 || r === 1 || r === 5);
+const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1 || r === 5);
 
 interface TransactionQuery {
   customerId?: string;
