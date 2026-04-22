@@ -50,7 +50,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
-  const schedule = await Schedule.findOne({ customer: req.params.customer }).select('customer package')
+  const schedule = await Schedule.findOne({ customer: req.params.customer }).select('customer package shootDate')
     .populate('customer', 'className school')
     .populate({
       path: 'package',
