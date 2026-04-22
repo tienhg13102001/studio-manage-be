@@ -1,12 +1,14 @@
 import { Request, Response } from 'express';
 import Transaction from '../models/Transaction';
 
-const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1);
+const isPrivileged = (roles: number[]): boolean =>
+  roles.some((r) => r === 0 || r === 1 || r === 5);
 
 interface TransactionQuery {
   customerId?: string;
   type?: string;
   categoryId?: string;
+  createdBy?: string;
   dateFrom?: string;
   dateTo?: string;
   page?: string;
@@ -18,6 +20,7 @@ const buildFilter = (q: TransactionQuery) => {
   if (q.customerId) filter.customerId = q.customerId;
   if (q.type) filter.type = q.type;
   if (q.categoryId) filter.categoryId = q.categoryId;
+  if (q.createdBy) filter.createdBy = q.createdBy;
   if (q.dateFrom || q.dateTo) {
     const dateRange: Record<string, Date> = {};
     if (q.dateFrom) dateRange.$gte = new Date(q.dateFrom);

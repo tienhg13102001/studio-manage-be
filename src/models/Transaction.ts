@@ -8,6 +8,7 @@ export interface ITransaction extends Document {
   description?: string;
   date: Date;
   createdBy?: Types.ObjectId;
+  accountantRefunded: boolean;
 }
 
 const transactionSchema = new Schema<ITransaction>(
@@ -19,6 +20,7 @@ const transactionSchema = new Schema<ITransaction>(
     description: { type: String, trim: true },
     date: { type: Date, required: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    accountantRefunded: { type: Boolean, default: false },
   },
   { timestamps: true },
 );
