@@ -26,23 +26,23 @@ router.get('/customers/:id', async (req: Request, res: Response): Promise<void> 
 
 // Get students by class (for display on public form)
 router.get('/students', async (req: Request, res: Response): Promise<void> => {
-  const { customerId } = req.query as Record<string, string>;
-  if (!customerId) {
-    res.status(400).json({ message: 'customerId is required' });
+  const { customer } = req.query as Record<string, string>;
+  if (!customer) {
+    res.status(400).json({ message: 'customer is required' });
     return;
   }
-  const students = await Student.find({ customerId }).sort({ name: 1 });
+  const students = await Student.find({ customer }).sort({ name: 1 });
   res.json(students);
 });
 
 // Submit student info (public)
 router.post('/students', async (req: Request, res: Response): Promise<void> => {
-  const { customerId, name, gender, height, weight, notes } = req.body;
-  if (!customerId || !name || !gender) {
-    res.status(400).json({ message: 'customerId, name và gender là bắt buộc' });
+  const { customer, name, gender, height, weight, notes } = req.body;
+  if (!customer || !name || !gender) {
+    res.status(400).json({ message: 'customer, name và gender là bắt buộc' });
     return;
   }
-  const student = await Student.create({ customerId, name, gender, height, weight, notes });
+  const student = await Student.create({ customer, name, gender, height, weight, notes });
   res.status(201).json(student);
 });
 

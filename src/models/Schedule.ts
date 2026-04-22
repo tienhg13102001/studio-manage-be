@@ -1,8 +1,8 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface ISchedule extends Document {
-  customerId: Types.ObjectId;
-  packageId?: Types.ObjectId;
+  customer: Types.ObjectId;
+  package?: Types.ObjectId;
   shootDate: Date;
   startTime?: string;
   endTime?: string;
@@ -16,8 +16,8 @@ export interface ISchedule extends Document {
 
 const scheduleSchema = new Schema<ISchedule>(
   {
-    customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
-    packageId: { type: Schema.Types.ObjectId, ref: 'Package', default: null },
+    customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
+    package: { type: Schema.Types.ObjectId, ref: 'Package', default: null },
     shootDate: { type: Date, required: true },
     startTime: { type: String, trim: true },
     endTime: { type: String, trim: true },
@@ -36,7 +36,7 @@ const scheduleSchema = new Schema<ISchedule>(
 );
 
 scheduleSchema.index({ shootDate: 1 });
-scheduleSchema.index({ customerId: 1 });
+scheduleSchema.index({ customer: 1 });
 scheduleSchema.index({ status: 1 });
 
 export default mongoose.model<ISchedule>('Schedule', scheduleSchema);

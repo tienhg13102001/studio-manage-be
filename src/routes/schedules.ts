@@ -7,6 +7,7 @@ const router = Router();
 router.use(protect);
 
 router.route('/').get(c.getAll).post(c.create);
+router.get('/customer/:customer', c.getByCustomer);
 router.get('/:id/contract', c.exportContract);
 router.route('/:id').get(c.getOne).put(c.update).delete(c.remove);
 

@@ -1,7 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IStudent extends Document {
-  customerId: mongoose.Types.ObjectId;
+  customer: mongoose.Types.ObjectId;
   name: string;
   gender: 'male' | 'female';
   height: number;
@@ -11,7 +11,7 @@ export interface IStudent extends Document {
 
 const studentSchema = new Schema<IStudent>(
   {
-    customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
+    customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
     name: { type: String, required: true, trim: true },
     gender: { type: String, enum: ['male', 'female'], required: true },
     height: { type: Number, required: true, min: 1 },
@@ -21,7 +21,7 @@ const studentSchema = new Schema<IStudent>(
   { timestamps: true },
 );
 
-studentSchema.index({ customerId: 1 });
+studentSchema.index({ customer: 1 });
 studentSchema.index({ name: 'text' });
 
 export default mongoose.model<IStudent>('Student', studentSchema);

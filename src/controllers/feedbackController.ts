@@ -10,7 +10,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total, totalUnread] = await Promise.all([
     Feedback.find(query)
-      .populate('customerId', 'className school')
+      .populate('customer', 'className school')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit)),
@@ -45,7 +45,7 @@ export const remove = async (req: Request, res: Response): Promise<void> => {
 
 // Public: submit feedback
 export const submit = async (req: Request, res: Response): Promise<void> => {
-  const { customerId, phone, crewFeedback, albumFeedback, content, suggestion } = req.body;
+  const { customer, phone, crewFeedback, albumFeedback, content, suggestion } = req.body;
 
   const crewRating = Number(crewFeedback?.rating);
   const albumRating = Number(albumFeedback?.rating);
@@ -64,7 +64,7 @@ export const submit = async (req: Request, res: Response): Promise<void> => {
   }
 
   const feedback = await Feedback.create({
-    customerId: customerId || undefined,
+    customer: customer || undefined,
     phone,
     crewFeedback: {
       rating: crewRating,

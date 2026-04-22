@@ -9,7 +9,7 @@ const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular
 const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
 
 interface ScheduleQuery {
-  customerId?: string;
+  customer?: string;
   status?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -19,7 +19,7 @@ interface ScheduleQuery {
 
 const buildFilter = (q: ScheduleQuery) => {
   const filter: Record<string, unknown> = {};
-  if (q.customerId) filter.customerId = q.customerId;
+  if (q.customer) filter.customer = q.customer;
   if (q.status) filter.status = q.status;
   if (q.dateFrom || q.dateTo) {
     const dateRange: Record<string, Date> = {};
@@ -36,8 +36,8 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
     Schedule.find(filter)
-      .populate('customerId', 'className school')
-      .populate('packageId', 'name pricePerMember')
+      .populate('customer', 'className school')
+      .populate('package', 'name pricePerMember')
       .populate('leadPhotographer', 'username name role')
       .populate('supportPhotographers', 'username name role')
       .populate('bookedBy', 'username name role')
@@ -49,13 +49,22 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   res.json({ data, total, page: Number(page), limit: Number(limit) });
 };
 
+export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
+  const schedule = await Schedule.findOne({ customer: req.params.customer }).select('customer package')
+    .populate('customer', 'className school')
+    .populate({
+      path: 'package',
+      select: 'name pricePerMember duration costumes',
+      populate: { path: 'costumes' },
+    })
+    .sort({ shootDate: -1 });
+  res.json(schedule);
+};
+
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const schedule = await Schedule.findById(req.params.id)
-    .populate('customerId', 'className school contactName contactPhone')
-    .populate(
-      'packageId',
-      'name pricePerMember duration costume crewRatio editingScope deliveryDays',
-    )
+    .populate('customer', 'className school contactName contactPhone')
+    .populate('package', 'name pricePerMember duration costume crewRatio editingScope deliveryDays')
     .populate('leadPhotographer', 'username role')
     .populate('supportPhotographers', 'username role')
     .populate('bookedBy', 'username name role');
@@ -95,8 +104,8 @@ export const remove = async (req: Request, res: Response): Promise<void> => {
 export const exportContract = async (req: Request, res: Response): Promise<void> => {
   const schedule = await Schedule.findById(req.params.id)
     .populate<{
-      customerId: ICustomer;
-    }>('customerId', 'className school contactName contactPhone studentCount')
+      customer: ICustomer;
+    }>('customer', 'className school contactName contactPhone total')
     .populate<{ leadPhotographer: IUser }>('leadPhotographer', 'username name')
     .populate<{ supportPhotographers: IUser[] }>('supportPhotographers', 'username name');
 
@@ -105,7 +114,7 @@ export const exportContract = async (req: Request, res: Response): Promise<void>
     return;
   }
 
-  const customer = schedule.customerId as unknown as ICustomer;
+  const customer = schedule.customer as unknown as ICustomer;
   const lead = schedule.leadPhotographer as unknown as IUser | null;
   const supports = (schedule.supportPhotographers as unknown as IUser[]) ?? [];
 
@@ -172,7 +181,7 @@ export const exportContract = async (req: Request, res: Response): Promise<void>
     ['Địa điểm', schedule.location ?? '—'],
     ['Thợ leader', lead ? (lead.name ?? lead.username) : '—'],
     ['Thợ support', supports.length ? supports.map((u) => u.name ?? u.username).join(', ') : '—'],
-    ['Số lượng học sinh', String(customer?.studentCount ?? '—')],
+    ['Số lượng học sinh', String(customer?.total ?? '—')],
   ];
 
   for (const [label, value] of rows) {

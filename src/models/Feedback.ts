@@ -6,7 +6,7 @@ export interface IFeedbackItem {
 }
 
 export interface IFeedback extends Document {
-  customerId?: Types.ObjectId;
+  customer?: Types.ObjectId;
   phone?: string;
   crewFeedback: IFeedbackItem;
   albumFeedback: IFeedbackItem;
@@ -27,7 +27,7 @@ const feedbackItemSchema = new Schema<IFeedbackItem>(
 
 const feedbackSchema = new Schema<IFeedback>(
   {
-    customerId: { type: Schema.Types.ObjectId, ref: 'Customer' },
+    customer: { type: Schema.Types.ObjectId, ref: 'Customer' },
     phone: { type: String, trim: true },
     crewFeedback: { type: feedbackItemSchema, required: true },
     albumFeedback: { type: feedbackItemSchema, required: true },

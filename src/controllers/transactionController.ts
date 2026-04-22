@@ -4,7 +4,7 @@ import Transaction from '../models/Transaction';
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1 || r === 5);
 
 interface TransactionQuery {
-  customerId?: string;
+  customer?: string;
   type?: string;
   categoryId?: string;
   createdBy?: string;
@@ -16,7 +16,7 @@ interface TransactionQuery {
 
 const buildFilter = (q: TransactionQuery) => {
   const filter: Record<string, unknown> = {};
-  if (q.customerId) filter.customerId = q.customerId;
+  if (q.customer) filter.customer = q.customer;
   if (q.type) filter.type = q.type;
   if (q.categoryId) filter.categoryId = q.categoryId;
   if (q.createdBy) filter.createdBy = q.createdBy;
@@ -38,7 +38,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
     Transaction.find(filter)
-      .populate('customerId', 'className school')
+      .populate('customer', 'className school')
       .populate('categoryId', 'name type')
       .populate('createdBy', 'name username')
       .sort({ date: -1 })
@@ -51,7 +51,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const tx = await Transaction.findById(req.params.id)
-    .populate('customerId', 'className school')
+    .populate('customer', 'className school')
     .populate('categoryId', 'name type')
     .populate('createdBy', 'name username');
   if (!tx) {
@@ -106,13 +106,13 @@ export const getSummary = async (req: Request, res: Response): Promise<void> => 
     { $match: { ...dateFilter, ...createdByFilter } },
     {
       $group: {
-        _id: { customerId: '$customerId', type: '$type' },
+        _id: { customer: '$customer', type: '$type' },
         total: { $sum: '$amount' },
       },
     },
     {
       $group: {
-        _id: '$_id.customerId',
+        _id: '$_id.customer',
         income: {
           $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] },
         },

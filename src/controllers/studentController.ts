@@ -2,16 +2,18 @@ import { Request, Response } from 'express';
 import Student from '../models/Student';
 
 export const getAll = async (req: Request, res: Response): Promise<void> => {
-  const { customerId, search, page = '1', limit = '50' } = req.query as Record<string, string>;
+  const { customer, search, page = '1', limit = '50' } = req.query as Record<string, string>;
   const query: Record<string, unknown> = {};
-  if (customerId) query.customerId = customerId;
+  if (customer) query.customer = customer;
   if (search) query.$text = { $search: search };
   const skip = (Number(page) - 1) * Number(limit);
-  const [data, total] = await Promise.all([
+  const [data, total, totalMale, totalFemale] = await Promise.all([
     Student.find(query).sort({ name: 1 }).skip(skip).limit(Number(limit)),
     Student.countDocuments(query),
+    Student.countDocuments({ ...query, gender: 'male' }),
+    Student.countDocuments({ ...query, gender: 'female' }),
   ]);
-  res.json({ data, total, page: Number(page), limit: Number(limit) });
+  res.json({ data, total, totalMale, totalFemale, page: Number(page), limit: Number(limit) });
 };
 
 export const getOne = async (req: Request, res: Response): Promise<void> => {

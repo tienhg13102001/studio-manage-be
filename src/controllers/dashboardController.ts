@@ -163,7 +163,7 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
     [scheduleCount, upcomingSchedules] = await Promise.all([
       Schedule.countDocuments(scheduleFilter),
       Schedule.find({ ...scheduleFilter, shootDate: { $gte: now } })
-        .populate('customerId', 'className school')
+        .populate('customer', 'className school')
         .populate('leadPhotographer', 'name username')
         .sort({ shootDate: 1 })
         .limit(10)
