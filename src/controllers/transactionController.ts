@@ -1,5 +1,11 @@
 import { Request, Response } from 'express';
 import Transaction from '../models/Transaction';
+import type {
+  ErrorResponse,
+  PaginatedResponse,
+  TransactionResponse,
+  TransactionSummaryRow,
+} from '../types/dto';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1 || r === 5);
 
@@ -29,7 +35,10 @@ const buildFilter = (q: TransactionQuery) => {
   return filter;
 };
 
-export const getAll = async (req: Request, res: Response): Promise<void> => {
+export const getAll = async (
+  req: Request,
+  res: Response<PaginatedResponse<TransactionResponse>>,
+): Promise<void> => {
   const { page = '1', limit = '20', ...rest } = req.query as TransactionQuery;
   const filter = buildFilter(rest);
   if (!isPrivileged(req.user!.roles)) {
@@ -38,22 +47,27 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
     Transaction.find(filter)
-      .populate('customer', 'className school')
-      .populate('categoryId', 'name type')
-      .populate('createdBy', 'name username')
+      .populate('customer')
+      .populate('categoryId')
+      .populate('createdBy')
       .sort({ date: -1 })
       .skip(skip)
-      .limit(Number(limit)),
+      .limit(Number(limit))
+      .lean<TransactionResponse[]>(),
     Transaction.countDocuments(filter),
   ]);
   res.json({ data, total, page: Number(page), limit: Number(limit) });
 };
 
-export const getOne = async (req: Request, res: Response): Promise<void> => {
+export const getOne = async (
+  req: Request,
+  res: Response<TransactionResponse | ErrorResponse>,
+): Promise<void> => {
   const tx = await Transaction.findById(req.params.id)
-    .populate('customer', 'className school')
-    .populate('categoryId', 'name type')
-    .populate('createdBy', 'name username');
+    .populate('customer')
+    .populate('categoryId')
+    .populate('createdBy')
+    .lean<TransactionResponse | null>();
   if (!tx) {
     res.status(404).json({ message: 'Not found' });
     return;
@@ -93,7 +107,10 @@ export const remove = async (req: Request, res: Response): Promise<void> => {
   res.json({ message: 'Deleted' });
 };
 
-export const getSummary = async (req: Request, res: Response): Promise<void> => {
+export const getSummary = async (
+  req: Request,
+  res: Response<TransactionSummaryRow[]>,
+): Promise<void> => {
   const { dateFrom, dateTo } = req.query as { dateFrom?: string; dateTo?: string };
   const matchDate: Record<string, Date> = {};
   if (dateFrom) matchDate.$gte = new Date(dateFrom);

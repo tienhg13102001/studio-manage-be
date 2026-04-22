@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import Customer from '../models/Customer';
 import Student from '../models/Student';
+import Schedule from '../models/Schedule';
 import * as feedbackController from '../controllers/feedbackController';
+import type { PublicScheduleResponse } from '../types/dto';
 
 const router = Router();
 
@@ -45,5 +47,23 @@ router.post('/students', async (req: Request, res: Response): Promise<void> => {
   const student = await Student.create({ customer, name, gender, height, weight, notes });
   res.status(201).json(student);
 });
+
+// Get shoot schedule by class (public, minimal fields)
+router.get(
+  '/schedules/customer/:customer',
+  async (req: Request, res: Response<PublicScheduleResponse | null>): Promise<void> => {
+    const schedule = await Schedule.findOne({ customer: req.params.customer })
+      .select('shootDate startTime endTime location status package customer')
+      .populate({
+        path: 'package',
+        select: 'name costumes',
+        populate: { path: 'costumes' },
+      })
+      .populate('customer', 'className school')
+      .sort({ shootDate: 1 })
+      .lean<PublicScheduleResponse | null>();
+    res.json(schedule);
+  },
+);
 
 export default router;

@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
 import Feedback from '../models/Feedback';
+import type { FeedbackListResponse, FeedbackResponse } from '../types/dto';
 
-export const getAll = async (req: Request, res: Response): Promise<void> => {
+export const getAll = async (
+  req: Request,
+  res: Response<FeedbackListResponse>,
+): Promise<void> => {
   const { page = '1', limit = '20', isRead } = req.query as Record<string, string>;
   const query: Record<string, unknown> = {};
   if (isRead === 'true') query.isRead = true;
@@ -10,10 +14,11 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total, totalUnread] = await Promise.all([
     Feedback.find(query)
-      .populate('customer', 'className school')
+      .populate('customer')
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(Number(limit)),
+      .limit(Number(limit))
+      .lean<FeedbackResponse[]>(),
     Feedback.countDocuments({}),
     Feedback.countDocuments({ isRead: false }),
   ]);

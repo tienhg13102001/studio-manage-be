@@ -3,11 +3,12 @@ import mongoose from 'mongoose';
 import Transaction from '../models/Transaction';
 import Customer from '../models/Customer';
 import Schedule from '../models/Schedule';
+import type { DashboardStats, UpcomingScheduleDto } from '../types/dto';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1);
 const isPhotographer = (roles: number[]): boolean => roles.includes(3);
 
-export const getStats = async (req: Request, res: Response): Promise<void> => {
+export const getStats = async (req: Request, res: Response<DashboardStats>): Promise<void> => {
   const { userId, months: monthsStr } = req.query as { userId?: string; months?: string };
   const months = Math.max(1, Math.min(12, parseInt(monthsStr ?? '6', 10) || 6));
   const privileged = isPrivileged(req.user!.roles);
@@ -139,7 +140,7 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
   // For photographer: schedules where they are leadPhotographer or in supportPhotographers
   // For admin: all schedules this month (or filtered by userId as photographer)
   let scheduleCount = 0;
-  let upcomingSchedules: unknown[] = [];
+  let upcomingSchedules: UpcomingScheduleDto[] = [];
 
   const showSchedules = privileged || isPhotographer(userRoles);
   if (showSchedules) {
@@ -167,7 +168,7 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
         .populate('leadPhotographer', 'name username')
         .sort({ shootDate: 1 })
         .limit(10)
-        .lean(),
+        .lean<UpcomingScheduleDto[]>(),
     ]);
   }
 

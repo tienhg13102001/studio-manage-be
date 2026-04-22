@@ -4,6 +4,11 @@ import path from 'path';
 import Schedule from '../models/Schedule';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
+import type {
+  ErrorResponse,
+  PaginatedResponse,
+  ScheduleResponse,
+} from '../types/dto';
 
 const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
 const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
@@ -30,44 +35,55 @@ const buildFilter = (q: ScheduleQuery) => {
   return filter;
 };
 
-export const getAll = async (req: Request, res: Response): Promise<void> => {
+export const getAll = async (
+  req: Request,
+  res: Response<PaginatedResponse<ScheduleResponse>>,
+): Promise<void> => {
   const { page = '1', limit = '20', ...rest } = req.query as ScheduleQuery;
   const filter = buildFilter(rest);
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
     Schedule.find(filter)
-      .populate('customer', 'className school')
-      .populate('package', 'name pricePerMember')
-      .populate('leadPhotographer', 'username name role')
-      .populate('supportPhotographers', 'username name role')
-      .populate('bookedBy', 'username name role')
+      .populate('customer')
+      .populate({ path: 'package', populate: { path: 'costumes' } })
+      .populate('leadPhotographer')
+      .populate('supportPhotographers')
+      .populate('bookedBy')
       .sort({ shootDate: 1 })
       .skip(skip)
-      .limit(Number(limit)),
+      .limit(Number(limit))
+      .lean<ScheduleResponse[]>(),
     Schedule.countDocuments(filter),
   ]);
   res.json({ data, total, page: Number(page), limit: Number(limit) });
 };
 
-export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
-  const schedule = await Schedule.findOne({ customer: req.params.customer }).select('customer package shootDate')
-    .populate('customer', 'className school')
-    .populate({
-      path: 'package',
-      select: 'name pricePerMember duration costumes',
-      populate: { path: 'costumes' },
-    })
-    .sort({ shootDate: -1 });
+export const getByCustomer = async (
+  req: Request,
+  res: Response<ScheduleResponse | null>,
+): Promise<void> => {
+  const schedule = await Schedule.findOne({ customer: req.params.customer })
+    .populate('customer')
+    .populate({ path: 'package', populate: { path: 'costumes' } })
+    .populate('leadPhotographer')
+    .populate('supportPhotographers')
+    .populate('bookedBy')
+    .sort({ shootDate: -1 })
+    .lean<ScheduleResponse | null>();
   res.json(schedule);
 };
 
-export const getOne = async (req: Request, res: Response): Promise<void> => {
+export const getOne = async (
+  req: Request,
+  res: Response<ScheduleResponse | ErrorResponse>,
+): Promise<void> => {
   const schedule = await Schedule.findById(req.params.id)
-    .populate('customer', 'className school contactName contactPhone')
-    .populate('package', 'name pricePerMember duration costume crewRatio editingScope deliveryDays')
-    .populate('leadPhotographer', 'username role')
-    .populate('supportPhotographers', 'username role')
-    .populate('bookedBy', 'username name role');
+    .populate('customer')
+    .populate({ path: 'package', populate: { path: 'costumes' } })
+    .populate('leadPhotographer')
+    .populate('supportPhotographers')
+    .populate('bookedBy')
+    .lean<ScheduleResponse | null>();
   if (!schedule) {
     res.status(404).json({ message: 'Not found' });
     return;
