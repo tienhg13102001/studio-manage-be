@@ -7,6 +7,7 @@ export interface IStudent extends Document {
   height: number;
   weight: number;
   notes?: string;
+  costumes: mongoose.Types.ObjectId[];
 }
 
 const studentSchema = new Schema<IStudent>(
@@ -17,6 +18,7 @@ const studentSchema = new Schema<IStudent>(
     height: { type: Number, required: true, min: 1 },
     weight: { type: Number, required: true, min: 1 },
     notes: { type: String },
+    costumes: [{ type: Schema.Types.ObjectId, ref: 'Costume', default: [] }],
   },
   { timestamps: true },
 );

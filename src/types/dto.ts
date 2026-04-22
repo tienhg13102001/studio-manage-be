@@ -128,7 +128,13 @@ export interface StudentDto {
   height?: number;
   weight?: number;
   notes?: string;
+  costumes: string[];
   createdAt?: string;
+}
+
+/** Populated student returned by GET endpoints. */
+export interface StudentResponse extends Omit<StudentDto, 'costumes'> {
+  costumes: CostumeDto[];
 }
 
 export interface FeedbackItemDto {

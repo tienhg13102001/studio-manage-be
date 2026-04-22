@@ -39,12 +39,20 @@ router.get('/students', async (req: Request, res: Response): Promise<void> => {
 
 // Submit student info (public)
 router.post('/students', async (req: Request, res: Response): Promise<void> => {
-  const { customer, name, gender, height, weight, notes } = req.body;
+  const { customer, name, gender, height, weight, notes, costumes } = req.body;
   if (!customer || !name || !gender) {
     res.status(400).json({ message: 'customer, name và gender là bắt buộc' });
     return;
   }
-  const student = await Student.create({ customer, name, gender, height, weight, notes });
+  const student = await Student.create({
+    customer,
+    name,
+    gender,
+    height,
+    weight,
+    notes,
+    costumes: Array.isArray(costumes) ? costumes : [],
+  });
   res.status(201).json(student);
 });
 
