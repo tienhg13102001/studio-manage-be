@@ -35,19 +35,19 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
   const income = thisMonthStats.find((r) => r._id === 'income')?.total ?? 0;
   const expense = thisMonthStats.find((r) => r._id === 'expense')?.total ?? 0;
 
-  const granularity: 'day' | 'month' = months === 1 ? 'day' : 'month';
+  const granularity: 'week' | 'month' = months === 1 ? 'week' : 'month';
 
-  // Last N months (or 1 month by day) breakdown for chart
+  // Last N months (or 1 month by week) breakdown for chart
   const nMonthsAgo = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
   const monthly: Array<{ label: string; income: number; expense: number }> = [];
 
-  if (granularity === 'day') {
-    // Rolling window: từ ngày này tháng trước → hôm nay
-    const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 0, 0);
-    const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  if (granularity === 'week') {
+    // Rolling window: từ ngày này tháng trước → hôm nay, gộp theo tuần (7 ngày)
+    const windowStart = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 0, 0);
+    const windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
     const dayRaw = await Transaction.aggregate([
-      { $match: { ...txFilter, date: { $gte: oneMonthAgo, $lte: dayEnd } } },
+      { $match: { ...txFilter, date: { $gte: windowStart, $lte: windowEnd } } },
       {
         $group: {
           _id: {
@@ -66,24 +66,36 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
           expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
         },
       },
-      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
     ]);
 
-    // Fill every day from oneMonthAgo to today
-    const cursor = new Date(oneMonthAgo);
-    while (cursor <= dayEnd) {
-      const yr = cursor.getFullYear();
-      const mo = cursor.getMonth() + 1;
-      const day = cursor.getDate();
-      const found = dayRaw.find(
-        (r) => r._id.year === yr && r._id.month === mo && r._id.day === day,
-      );
+    // Tạo các bucket 7 ngày kết thúc tại hôm nay, đi ngược về trước cho tới khi phủ windowStart
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const totalDays = Math.floor((windowEnd.getTime() - windowStart.getTime()) / MS_PER_DAY) + 1;
+    const numWeeks = Math.ceil(totalDays / 7);
+
+    for (let i = numWeeks - 1; i >= 0; i--) {
+      const wEnd = new Date(windowEnd);
+      wEnd.setDate(wEnd.getDate() - i * 7);
+      wEnd.setHours(23, 59, 59, 999);
+      const wStart = new Date(wEnd);
+      wStart.setDate(wStart.getDate() - 6);
+      wStart.setHours(0, 0, 0, 0);
+      if (wStart < windowStart) wStart.setTime(windowStart.getTime());
+
+      let inc = 0;
+      let exp = 0;
+      for (const r of dayRaw) {
+        const d = new Date(r._id.year, r._id.month - 1, r._id.day);
+        if (d >= wStart && d <= wEnd) {
+          inc += r.income;
+          exp += r.expense;
+        }
+      }
       monthly.push({
-        label: `${yr}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-        income: found?.income ?? 0,
-        expense: found?.expense ?? 0,
+        label: `${wStart.getFullYear()}-${String(wStart.getMonth() + 1).padStart(2, '0')}-${String(wStart.getDate()).padStart(2, '0')}`,
+        income: inc,
+        expense: exp,
       });
-      cursor.setDate(cursor.getDate() + 1);
     }
   } else {
     // Aggregate by month
