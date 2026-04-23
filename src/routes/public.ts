@@ -1,9 +1,10 @@
 import { Router, Request, Response } from 'express';
+import type { Types } from 'mongoose';
 import Customer from '../models/Customer';
 import Student from '../models/Student';
 import Schedule from '../models/Schedule';
 import * as feedbackController from '../controllers/feedbackController';
-import type { PublicScheduleResponse } from '../types/dto';
+import type { CostumeDto, PublicScheduleResponse } from '../types/dto';
 
 const router = Router();
 
@@ -61,16 +62,61 @@ router.get(
   '/schedules/customer/:customer',
   async (req: Request, res: Response<PublicScheduleResponse | null>): Promise<void> => {
     const schedule = await Schedule.findOne({ customer: req.params.customer })
-      .select('shootDate startTime endTime location status package customer')
+      .select('shootDate startTime endTime location status package customer costumes')
+      .populate('costumes', '_id name description gender type createdAt')
       .populate({
         path: 'package',
-        select: 'name costumes',
-        populate: { path: 'costumes' },
+        select: 'name',
       })
       .populate('customer', 'className school')
       .sort({ shootDate: 1 })
-      .lean<PublicScheduleResponse | null>();
-    res.json(schedule);
+      .lean<{
+        _id: Types.ObjectId;
+        shootDate: Date;
+        startTime?: string;
+        endTime?: string;
+        location?: string;
+        status: PublicScheduleResponse['status'];
+        customer: {
+          _id: Types.ObjectId;
+          className: string;
+          school?: string;
+        };
+        package: {
+          _id: Types.ObjectId;
+          name: string;
+        } | null;
+        costumes: CostumeDto[];
+
+      } | null>();
+
+    if (!schedule) {
+      res.json(null);
+      return;
+    }
+
+    const response: PublicScheduleResponse = {
+      _id: String(schedule._id),
+      shootDate: new Date(schedule.shootDate).toISOString(),
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      location: schedule.location,
+      status: schedule.status,
+      costumes: schedule.costumes,
+      customer: {
+        _id: String(schedule.customer._id),
+        className: schedule.customer.className,
+        school: schedule.customer.school,
+      },
+      package: schedule.package
+        ? {
+            _id: String(schedule.package._id),
+            name: schedule.package.name,
+          }
+        : null,
+    };
+
+    res.json(response);
   },
 );
 
