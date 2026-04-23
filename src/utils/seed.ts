@@ -1,7 +1,7 @@
 import path from 'path';
 import dotenv from 'dotenv';
 
-const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+const envFile = process.env.NODE_ENV === 'production' ? '.env' : '.env';
 dotenv.config({ path: path.join(__dirname, '../..', envFile) });
 
 import mongoose from 'mongoose';
