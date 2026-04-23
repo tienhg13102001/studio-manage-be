@@ -2,10 +2,7 @@ import { Request, Response } from 'express';
 import Feedback from '../models/Feedback';
 import type { FeedbackListResponse, FeedbackResponse } from '../types/dto';
 
-export const getAll = async (
-  req: Request,
-  res: Response<FeedbackListResponse>,
-): Promise<void> => {
+export const getAll = async (req: Request, res: Response<FeedbackListResponse>): Promise<void> => {
   const { page = '1', limit = '20', isRead } = req.query as Record<string, string>;
   const query: Record<string, unknown> = {};
   if (isRead === 'true') query.isRead = true;

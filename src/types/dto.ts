@@ -80,11 +80,10 @@ export interface ScheduleDto {
 }
 
 /** Populated schedule returned by GET endpoints. */
-export interface ScheduleResponse
-  extends Omit<
-    ScheduleDto,
-    'customer' | 'package' | 'leadPhotographer' | 'supportPhotographers' | 'bookedBy'
-  > {
+export interface ScheduleResponse extends Omit<
+  ScheduleDto,
+  'customer' | 'package' | 'leadPhotographer' | 'supportPhotographers' | 'bookedBy'
+> {
   customer: CustomerDto;
   package: PackageDto | null;
   leadPhotographer: UserDto | null;
@@ -105,8 +104,10 @@ export interface TransactionDto {
   createdAt?: string;
 }
 
-export interface TransactionResponse
-  extends Omit<TransactionDto, 'customer' | 'categoryId' | 'createdBy'> {
+export interface TransactionResponse extends Omit<
+  TransactionDto,
+  'customer' | 'categoryId' | 'createdBy'
+> {
   customer: CustomerDto | null;
   categoryId: CategoryDto;
   createdBy: UserDto | null;

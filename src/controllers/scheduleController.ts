@@ -4,11 +4,7 @@ import path from 'path';
 import Schedule from '../models/Schedule';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
-import type {
-  ErrorResponse,
-  PaginatedResponse,
-  ScheduleResponse,
-} from '../types/dto';
+import type { ErrorResponse, PaginatedResponse, ScheduleResponse } from '../types/dto';
 
 const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
 const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');

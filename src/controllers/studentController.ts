@@ -1,10 +1,6 @@
 import { Request, Response } from 'express';
 import Student from '../models/Student';
-import type {
-  ErrorResponse,
-  PaginatedResponse,
-  StudentResponse,
-} from '../types/dto';
+import type { ErrorResponse, PaginatedResponse, StudentResponse } from '../types/dto';
 
 export const getAll = async (
   req: Request,
@@ -43,14 +39,9 @@ export const getOne = async (
   res.json(student);
 };
 
-export const create = async (
-  req: Request,
-  res: Response<StudentResponse>,
-): Promise<void> => {
+export const create = async (req: Request, res: Response<StudentResponse>): Promise<void> => {
   const created = await Student.create(req.body);
-  const student = await Student.findById(created._id)
-    .populate('costumes')
-    .lean<StudentResponse>();
+  const student = await Student.findById(created._id).populate('costumes').lean<StudentResponse>();
   res.status(201).json(student as StudentResponse);
 };
 
