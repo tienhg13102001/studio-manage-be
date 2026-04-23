@@ -189,7 +189,11 @@ export interface PublicScheduleResponse {
   location?: string;
   status: ScheduleDto['status'];
   customer: Pick<CustomerDto, '_id' | 'className' | 'school'>;
-  package: Pick<PackageDto, '_id' | 'name' | 'costumes'> | null;
+  costumes: CostumeDto[];
+  package: {
+    _id: string;
+    name: string;
+  } | null;
 }
 
 /** Upcoming schedule cell shown on the dashboard. */
