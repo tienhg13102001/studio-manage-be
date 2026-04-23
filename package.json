@@ -10,6 +10,7 @@
     "build": "tsc",
     "check": "tsc --noEmit && prettier --check \"src/**/*.{ts,json}\"",
     "seed": "ts-node src/utils/seed.ts",
+    "seed:clone-prod-to-test": "ts-node src/utils/cloneProdToTest.ts",
     "migrate:package-duration": "ts-node src/utils/migratePackageDuration.ts",
     "format": "prettier --write \"src/**/*.{ts,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,json}\""
