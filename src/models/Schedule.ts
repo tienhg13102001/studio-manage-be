@@ -3,6 +3,7 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 export interface ISchedule extends Document {
   customer: Types.ObjectId;
   package?: Types.ObjectId;
+  costumes: Types.ObjectId[];
   shootDate: Date;
   startTime?: string;
   endTime?: string;
@@ -18,6 +19,7 @@ const scheduleSchema = new Schema<ISchedule>(
   {
     customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
     package: { type: Schema.Types.ObjectId, ref: 'Package', default: null },
+    costumes: [{ type: Schema.Types.ObjectId, ref: 'Costume', default: [] }],
     shootDate: { type: Date, required: true },
     startTime: { type: String, trim: true },
     endTime: { type: String, trim: true },

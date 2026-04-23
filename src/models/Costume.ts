@@ -4,6 +4,7 @@ export interface ICostume extends Document {
   name: string;
   description?: string;
   gender: 'male' | 'female' | 'unisex';
+  type?: mongoose.Types.ObjectId;
 }
 
 const costumeSchema = new Schema<ICostume>(
@@ -16,6 +17,7 @@ const costumeSchema = new Schema<ICostume>(
       default: 'unisex',
       required: true,
     },
+    type: { type: Schema.Types.ObjectId, ref: 'CostumeType', default: null },
   },
   { timestamps: true },
 );
