@@ -23,132 +23,88 @@ export const getStats = async (req: Request, res: Response<DashboardStats>): Pro
   }
 
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  // Window: [now - N months, now]
+  const windowStart = new Date(
+    now.getFullYear(),
+    now.getMonth() - months,
+    now.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+  const windowEnd = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    23,
+    59,
+    59,
+    999,
+  );
 
   const txFilter = filterUserId ? { createdBy: filterUserId } : {};
+  const dateRange = { $gte: windowStart, $lte: windowEnd };
 
-  // This month income/expense
-  const thisMonthStats = await Transaction.aggregate([
-    { $match: { ...txFilter, date: { $gte: monthStart, $lte: monthEnd } } },
+  // Window income/expense totals
+  const totalsRaw = await Transaction.aggregate([
+    { $match: { ...txFilter, date: dateRange } },
     { $group: { _id: '$type', total: { $sum: '$amount' } } },
   ]);
-  const income = thisMonthStats.find((r) => r._id === 'income')?.total ?? 0;
-  const expense = thisMonthStats.find((r) => r._id === 'expense')?.total ?? 0;
+  const income = totalsRaw.find((r) => r._id === 'income')?.total ?? 0;
+  const expense = totalsRaw.find((r) => r._id === 'expense')?.total ?? 0;
 
-  const granularity: 'week' | 'month' = months === 1 ? 'week' : 'month';
-
-  // Last N months (or 1 month by week) breakdown for chart
-  const nMonthsAgo = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
-  const monthly: Array<{ label: string; income: number; expense: number }> = [];
-
-  if (granularity === 'week') {
-    // Rolling window: từ ngày này tháng trước → hôm nay, gộp theo tuần (7 ngày)
-    const windowStart = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 0, 0);
-    const windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    const dayRaw = await Transaction.aggregate([
-      { $match: { ...txFilter, date: { $gte: windowStart, $lte: windowEnd } } },
-      {
-        $group: {
-          _id: {
-            year: { $year: '$date' },
-            month: { $month: '$date' },
-            day: { $dayOfMonth: '$date' },
-            type: '$type',
-          },
-          total: { $sum: '$amount' },
+  // Daily breakdown: group by actual transaction date (only days with data).
+  const dailyRaw: Array<{
+    _id: { year: number; month: number; day: number };
+    income: number;
+    expense: number;
+  }> = await Transaction.aggregate([
+    { $match: { ...txFilter, date: dateRange } },
+    {
+      $group: {
+        _id: {
+          year: { $year: '$date' },
+          month: { $month: '$date' },
+          day: { $dayOfMonth: '$date' },
+          type: '$type',
         },
+        total: { $sum: '$amount' },
       },
-      {
-        $group: {
-          _id: { year: '$_id.year', month: '$_id.month', day: '$_id.day' },
-          income: { $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] } },
-          expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
-        },
+    },
+    {
+      $group: {
+        _id: { year: '$_id.year', month: '$_id.month', day: '$_id.day' },
+        income: { $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] } },
+        expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
       },
-    ]);
+    },
+    { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+  ]);
 
-    // Tạo các bucket 7 ngày kết thúc tại hôm nay, đi ngược về trước cho tới khi phủ windowStart
-    const MS_PER_DAY = 24 * 60 * 60 * 1000;
-    const totalDays = Math.floor((windowEnd.getTime() - windowStart.getTime()) / MS_PER_DAY) + 1;
-    const numWeeks = Math.ceil(totalDays / 7);
+  const daily = dailyRaw.map((r) => ({
+    label: `${r._id.year}-${String(r._id.month).padStart(2, '0')}-${String(r._id.day).padStart(2, '0')}`,
+    income: r.income,
+    expense: r.expense,
+  }));
 
-    for (let i = numWeeks - 1; i >= 0; i--) {
-      const wEnd = new Date(windowEnd);
-      wEnd.setDate(wEnd.getDate() - i * 7);
-      wEnd.setHours(23, 59, 59, 999);
-      const wStart = new Date(wEnd);
-      wStart.setDate(wStart.getDate() - 6);
-      wStart.setHours(0, 0, 0, 0);
-      if (wStart < windowStart) wStart.setTime(windowStart.getTime());
-
-      let inc = 0;
-      let exp = 0;
-      for (const r of dayRaw) {
-        const d = new Date(r._id.year, r._id.month - 1, r._id.day);
-        if (d >= wStart && d <= wEnd) {
-          inc += r.income;
-          exp += r.expense;
-        }
-      }
-      monthly.push({
-        label: `${wStart.getFullYear()}-${String(wStart.getMonth() + 1).padStart(2, '0')}-${String(wStart.getDate()).padStart(2, '0')}`,
-        income: inc,
-        expense: exp,
-      });
-    }
-  } else {
-    // Aggregate by month
-    const monthlyRaw = await Transaction.aggregate([
-      { $match: { ...txFilter, date: { $gte: nMonthsAgo } } },
-      {
-        $group: {
-          _id: { year: { $year: '$date' }, month: { $month: '$date' }, type: '$type' },
-          total: { $sum: '$amount' },
-        },
-      },
-      {
-        $group: {
-          _id: { year: '$_id.year', month: '$_id.month' },
-          income: { $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] } },
-          expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
-        },
-      },
-      { $sort: { '_id.year': 1, '_id.month': 1 } },
-    ]);
-
-    // Fill missing months so chart always shows N bars
-    for (let i = months - 1; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const yr = d.getFullYear();
-      const mo = d.getMonth() + 1;
-      const found = monthlyRaw.find((r) => r._id.year === yr && r._id.month === mo);
-      monthly.push({
-        label: `${yr}-${String(mo).padStart(2, '0')}`,
-        income: found?.income ?? 0,
-        expense: found?.expense ?? 0,
-      });
-    }
-  }
-
-  // Customer count (created by user)
-  const customerFilter = filterUserId ? { createdBy: filterUserId } : {};
+  // Customer count within window (by createdAt)
+  const customerFilter: Record<string, unknown> = {
+    ...(filterUserId ? { createdBy: filterUserId } : {}),
+    createdAt: dateRange,
+  };
   const customerCount = await Customer.countDocuments(customerFilter);
 
   // Schedule count & upcoming — only for photographers or admin
-  // For photographer: schedules where they are leadPhotographer or in supportPhotographers
-  // For admin: all schedules this month (or filtered by userId as photographer)
   let scheduleCount = 0;
   let upcomingSchedules: UpcomingScheduleDto[] = [];
 
   const showSchedules = privileged || isPhotographer(userRoles);
   if (showSchedules) {
-    const shootDateFilter = { shootDate: { $gte: monthStart, $lte: monthEnd } };
+    const shootDateFilter = { shootDate: dateRange };
     let scheduleFilter: Record<string, unknown> = { ...shootDateFilter };
 
     if (filterUserId) {
-      // Filter lịch mà user là lead hoặc support photographer
       scheduleFilter = {
         ...shootDateFilter,
         $or: [{ leadPhotographer: filterUserId }, { supportPhotographers: filterUserId }],
@@ -161,9 +117,11 @@ export const getStats = async (req: Request, res: Response<DashboardStats>): Pro
       };
     }
 
+    const upcomingFilter: Record<string, unknown> = { ...scheduleFilter, shootDate: { $gte: now } };
+
     [scheduleCount, upcomingSchedules] = await Promise.all([
       Schedule.countDocuments(scheduleFilter),
-      Schedule.find({ ...scheduleFilter, shootDate: { $gte: now } })
+      Schedule.find(upcomingFilter)
         .populate('customer', 'className school')
         .populate('leadPhotographer', 'name username')
         .sort({ shootDate: 1 })
@@ -173,9 +131,8 @@ export const getStats = async (req: Request, res: Response<DashboardStats>): Pro
   }
 
   res.json({
-    thisMonth: { income, expense, profit: income - expense },
-    monthly,
-    granularity,
+    totals: { income, expense, profit: income - expense },
+    daily,
     customerCount,
     scheduleCount,
     showSchedules,
