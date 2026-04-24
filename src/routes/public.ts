@@ -87,7 +87,6 @@ router.get(
           name: string;
         } | null;
         costumes: CostumeDto[];
-
       } | null>();
 
     if (!schedule) {
