@@ -33,15 +33,7 @@ export const getStats = async (req: Request, res: Response<DashboardStats>): Pro
     0,
     0,
   );
-  const windowEnd = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    23,
-    59,
-    59,
-    999,
-  );
+  const windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
   const txFilter = filterUserId ? { createdBy: filterUserId } : {};
   const dateRange = { $gte: windowStart, $lte: windowEnd };
