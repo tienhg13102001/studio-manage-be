@@ -10,6 +10,7 @@ export interface IPackage extends Document {
   deliveryDays?: number;
   studentsPerCrew?: number;
   description?: string;
+  isPopular?: boolean;
 }
 
 const packageSchema = new Schema<IPackage>(
@@ -23,6 +24,7 @@ const packageSchema = new Schema<IPackage>(
     deliveryDays: { type: Number },
     studentsPerCrew: { type: Number },
     description: { type: String, trim: true },
+    isPopular: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

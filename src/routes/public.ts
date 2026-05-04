@@ -3,6 +3,7 @@ import type { Types } from 'mongoose';
 import Customer from '../models/Customer';
 import Student from '../models/Student';
 import Schedule from '../models/Schedule';
+import Package from '../models/Package';
 import * as feedbackController from '../controllers/feedbackController';
 import type { CostumeDto, PublicScheduleResponse } from '../types/dto';
 
@@ -10,6 +11,17 @@ const router = Router();
 
 // Submit feedback (public, no auth)
 router.post('/feedback', feedbackController.submit);
+
+// List packages (public, used by portfolio pricing section)
+router.get('/packages', async (_req: Request, res: Response): Promise<void> => {
+  const packages = await Package.find({})
+    .select(
+      'name pricePerMember duration crewRatio editingScope deliveryDays studentsPerCrew description costumes isPopular',
+    )
+    .populate('costumes', 'name')
+    .sort({ pricePerMember: 1 });
+  res.json(packages);
+});
 
 // Get all classes (for public form selector)
 router.get('/customers', async (_req: Request, res: Response): Promise<void> => {
