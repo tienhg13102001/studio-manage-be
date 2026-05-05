@@ -9,7 +9,6 @@ const signToken = (id: string): string =>
   });
 
 export const login = async (req: Request, res: Response): Promise<void> => {
-  console.log('login by', req.body);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     res.status(400).json({ errors: errors.array() });
@@ -38,4 +37,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 export const getMe = (req: Request, res: Response): void => {
   res.json({ user: req.user });
+};
+
+export const refresh = (req: Request, res: Response): void => {
+  const token = signToken(req.user!._id.toString());
+  res.json({
+    token,
+    user: req.user,
+  });
 };
