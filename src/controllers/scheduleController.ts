@@ -135,38 +135,83 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   }
   res.json(schedule);
 
-  // Thông báo khi status thay đổi (vd: confirmed, cancelled)
-  const newStatus = req.body?.status as string | undefined;
-  if (newStatus && prevSchedule && newStatus !== prevSchedule.status) {
-    void (async () => {
-      try {
-        const full = await Schedule.findById(schedule._id)
-          .populate<{ customer: Pick<ICustomer, 'className'> }>('customer', 'className')
-          .lean();
-        if (!full) return;
+  if (!prevSchedule) return;
 
+  void (async () => {
+    try {
+      const full = await Schedule.findById(schedule._id)
+        .populate<{ customer: Pick<ICustomer, 'className'> }>('customer', 'className')
+        .lean();
+      if (!full) return;
+
+      const dateStr = new Date(full.shootDate).toLocaleDateString('vi-VN');
+      const customerName = full.customer?.className ?? 'Khách hàng';
+      const timeStr = full.startTime ? ` • ${full.startTime}` : '';
+      const locationStr = full.location ? `\n📍 ${full.location}` : '';
+
+      // ── 1. Phát hiện thay đổi thợ chụp ──────────────────────────────────
+      const prevLead = prevSchedule.leadPhotographer?.toString() ?? null;
+      const newLead = req.body?.leadPhotographer ? String(req.body.leadPhotographer) : null;
+
+      const prevSupports = (prevSchedule.supportPhotographers ?? []).map((id) => id.toString());
+      const newSupports: string[] = Array.isArray(req.body?.supportPhotographers)
+        ? req.body.supportPhotographers.map(String)
+        : prevSupports;
+
+      // Thợ mới được thêm vào (chưa có trong lịch trước)
+      const addedLead =
+        newLead && newLead !== prevLead && !prevSupports.includes(newLead) ? [newLead] : [];
+      const addedSupports = newSupports.filter(
+        (id) => id !== prevLead && !prevSupports.includes(id),
+      );
+      const addedIds = [...new Set([...addedLead, ...addedSupports])];
+
+      // Thợ bị gỡ ra
+      const removedLead =
+        prevLead && prevLead !== newLead && !newSupports.includes(prevLead) ? [prevLead] : [];
+      const removedSupports = prevSupports.filter(
+        (id) => id !== newLead && !newSupports.includes(id),
+      );
+      const removedIds = [...new Set([...removedLead, ...removedSupports])];
+
+      if (addedIds.length) {
+        const text =
+          `📅 <b>Bạn được phân công lịch chụp</b>\n` +
+          `👥 ${customerName}\n` +
+          `📆 ${dateStr}${timeStr}${locationStr}`;
+        await notifyUsers(addedIds, text);
+      }
+
+      if (removedIds.length) {
+        const text =
+          `🗑 <b>Bạn đã được gỡ khỏi lịch chụp</b>\n` +
+          `👥 ${customerName} • ${dateStr}`;
+        await notifyUsers(removedIds, text);
+      }
+
+      // ── 2. Thông báo đổi status cho tất cả thợ hiện tại ─────────────────
+      const newStatus = req.body?.status as string | undefined;
+      if (newStatus && newStatus !== prevSchedule.status) {
         const statusLabel: Record<string, string> = {
           confirmed: '✅ Đã xác nhận',
           completed: '🎉 Hoàn thành',
           cancelled: '❌ Đã huỷ',
           pending: '⏳ Chờ xác nhận',
         };
-        const dateStr = new Date(full.shootDate).toLocaleDateString('vi-VN');
-        const customerName = full.customer?.className ?? 'Khách hàng';
         const text =
           `🔔 <b>Lịch chụp cập nhật trạng thái</b>\n` +
           `👥 ${customerName} • ${dateStr}\n` +
           `Trạng thái: ${statusLabel[newStatus] ?? newStatus}`;
 
-        const ids = [full.leadPhotographer, ...full.supportPhotographers]
+        const currentIds = [full.leadPhotographer, ...full.supportPhotographers]
           .filter(Boolean)
           .map(String);
-        if (ids.length) await notifyUsers(ids, text);
-      } catch (e) {
-        console.error('[Telegram] schedule update notification failed:', e);
+        if (currentIds.length) await notifyUsers(currentIds, text);
       }
-    })();
-  }
+    } catch (e) {
+      console.error('[Telegram] schedule update notification failed:', e);
+    }
+  })();
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
