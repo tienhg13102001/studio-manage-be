@@ -46,7 +46,7 @@ export const getAll = async (
       .populate('leadPhotographer')
       .populate('supportPhotographers')
       .populate('bookedBy')
-      .sort({ shootDate: 1 })
+      .sort({ shootDate: -1 })
       .skip(skip)
       .limit(Number(limit))
       .lean<ScheduleResponse[]>(),
