@@ -5,6 +5,7 @@ import Schedule from '../models/Schedule';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
 import type { ErrorResponse, PaginatedResponse, ScheduleResponse } from '../types/dto';
+import { notifyUsers } from '../services/telegramService';
 
 const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
 const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
@@ -93,9 +94,37 @@ export const getOne = async (
 export const create = async (req: Request, res: Response): Promise<void> => {
   const schedule = await Schedule.create(req.body);
   res.status(201).json(schedule);
+
+  // Fire-and-forget: thông báo cho nhiếp ảnh gia được phân công
+  void (async () => {
+    try {
+      const full = await Schedule.findById(schedule._id)
+        .populate<{ customer: Pick<ICustomer, 'className' | 'school'> }>('customer', 'className school')
+        .lean();
+      if (!full) return;
+
+      const dateStr = new Date(full.shootDate).toLocaleDateString('vi-VN');
+      const customerName = full.customer?.className ?? 'Khách hàng';
+      const timeStr = full.startTime ? ` • ${full.startTime}` : '';
+      const locationStr = full.location ? `\n📍 ${full.location}` : '';
+
+      const text =
+        `📅 <b>Lịch chụp mới được tạo</b>\n` +
+        `👥 ${customerName}\n` +
+        `📆 ${dateStr}${timeStr}${locationStr}`;
+
+      const ids = [full.leadPhotographer, ...full.supportPhotographers]
+        .filter(Boolean)
+        .map(String);
+      if (ids.length) await notifyUsers(ids, text);
+    } catch (e) {
+      console.error('[Telegram] schedule create notification failed:', e);
+    }
+  })();
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
+  const prevSchedule = await Schedule.findById(req.params.id).lean();
   const schedule = await Schedule.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,
@@ -105,6 +134,39 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     return;
   }
   res.json(schedule);
+
+  // Thông báo khi status thay đổi (vd: confirmed, cancelled)
+  const newStatus = req.body?.status as string | undefined;
+  if (newStatus && prevSchedule && newStatus !== prevSchedule.status) {
+    void (async () => {
+      try {
+        const full = await Schedule.findById(schedule._id)
+          .populate<{ customer: Pick<ICustomer, 'className'> }>('customer', 'className')
+          .lean();
+        if (!full) return;
+
+        const statusLabel: Record<string, string> = {
+          confirmed: '✅ Đã xác nhận',
+          completed: '🎉 Hoàn thành',
+          cancelled: '❌ Đã huỷ',
+          pending: '⏳ Chờ xác nhận',
+        };
+        const dateStr = new Date(full.shootDate).toLocaleDateString('vi-VN');
+        const customerName = full.customer?.className ?? 'Khách hàng';
+        const text =
+          `🔔 <b>Lịch chụp cập nhật trạng thái</b>\n` +
+          `👥 ${customerName} • ${dateStr}\n` +
+          `Trạng thái: ${statusLabel[newStatus] ?? newStatus}`;
+
+        const ids = [full.leadPhotographer, ...full.supportPhotographers]
+          .filter(Boolean)
+          .map(String);
+        if (ids.length) await notifyUsers(ids, text);
+      } catch (e) {
+        console.error('[Telegram] schedule update notification failed:', e);
+      }
+    })();
+  }
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {

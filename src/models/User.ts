@@ -19,6 +19,10 @@ export interface IUser extends Document {
   password: string;
   roles: UserRole[];
   isActive: boolean;
+  telegramId?: string;
+  telegramUsername?: string;
+  telegramLinkToken?: string;
+  telegramLinkTokenExpiry?: Date;
   comparePassword(plain: string): Promise<boolean>;
 }
 
@@ -29,6 +33,10 @@ const userSchema = new Schema<IUser>(
     password: { type: String, required: true, select: false },
     roles: { type: [{ type: Number, enum: [0, 1, 2, 3, 4, 5] }], default: [2] },
     isActive: { type: Boolean, default: true },
+    telegramId: { type: String, default: null, sparse: true },
+    telegramUsername: { type: String, default: null },
+    telegramLinkToken: { type: String, default: null, select: false },
+    telegramLinkTokenExpiry: { type: Date, default: null, select: false },
   },
   { timestamps: true },
 );

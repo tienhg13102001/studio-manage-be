@@ -46,3 +46,41 @@ export const refresh = (req: Request, res: Response): void => {
     user: req.user,
   });
 };
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  const { currentPassword, newPassword } = req.body as {
+    currentPassword: string;
+    newPassword: string;
+  };
+
+  if (!currentPassword || !newPassword || newPassword.length < 6) {
+    res.status(400).json({ message: 'Mật khẩu mới phải có ít nhất 6 ký tự' });
+    return;
+  }
+
+  const user = await User.findById(req.user!._id).select('+password');
+  if (!user) {
+    res.status(404).json({ message: 'User not found' });
+    return;
+  }
+
+  const match = await user.comparePassword(currentPassword);
+  if (!match) {
+    res.status(400).json({ message: 'Mật khẩu hiện tại không đúng' });
+    return;
+  }
+
+  user.password = newPassword;
+  await user.save();
+
+  res.json({ message: 'Đổi mật khẩu thành công' });
+};
+
+export const updateProfile = async (req: Request, res: Response): Promise<void> => {
+  const { name } = req.body as { name?: string };
+  const user = await User.findByIdAndUpdate(
+    req.user!._id,
+    { name },
+    { new: true, runValidators: true },
+  ).select('-password');
+  res.json(user);
+};

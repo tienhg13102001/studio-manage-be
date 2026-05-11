@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { login, getMe, refresh } from '../controllers/authController';
+import { login, getMe, refresh, changePassword, updateProfile } from '../controllers/authController';
 import { protect } from '../middleware/auth';
 
 const router = Router();
@@ -16,5 +16,7 @@ router.post(
 
 router.get('/me', protect, getMe);
 router.post('/refresh', protect, refresh);
+router.patch('/change-password', protect, changePassword);
+router.patch('/profile', protect, updateProfile);
 
 export default router;

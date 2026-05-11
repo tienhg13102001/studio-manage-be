@@ -6,6 +6,7 @@ import type {
   TransactionResponse,
   TransactionSummaryRow,
 } from '../types/dto';
+import { notifyByRoles } from '../services/telegramService';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1 || r === 5);
 
@@ -80,6 +81,23 @@ export const create = async (req: Request, res: Response): Promise<void> => {
     isPrivileged(req.user!.roles) && req.body.createdBy ? req.body.createdBy : req.user!._id;
   const tx = await Transaction.create({ ...req.body, createdBy });
   res.status(201).json(tx);
+
+  // Fire-and-forget: thông báo admin/kế toán khi có giao dịch mới
+  void (async () => {
+    try {
+      const typeLabel = tx.type === 'income' ? '💰 Thu' : '💸 Chi';
+      const amount = tx.amount?.toLocaleString('vi-VN') ?? '0';
+      const creatorName = req.user!.name ?? req.user!.username;
+      const text =
+        `🔔 <b>Giao dịch mới</b>\n` +
+        `${typeLabel}: <b>${amount} đ</b>\n` +
+        `Người tạo: ${creatorName}${tx.description ? `\nMô tả: ${tx.description}` : ''}`;
+      // Thông báo cho Superadmin (0), Admin (1), Kế toán (5)
+      await notifyByRoles([0, 1, 5], text);
+    } catch (e) {
+      console.error('[Telegram] transaction notification failed:', e);
+    }
+  })();
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
