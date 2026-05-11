@@ -178,7 +178,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       if (addedIds.length) {
         const text =
           `📅 <b>Bạn được phân công lịch chụp</b>\n` +
-          `👥 ${customerName}${customerSchool}\n` +
+          `👥 ${customerName} - ${customerSchool}\n` +
           `📆 ${dateStr}${timeStr}${locationStr}`;
         await notifyUsers(addedIds, text);
       }
@@ -186,7 +186,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       if (removedIds.length) {
         const text =
           `🗑 <b>Bạn đã được gỡ khỏi lịch chụp</b>\n` +
-          `👥 ${customerName}${customerSchool}` +
+          `👥 ${customerName} - ${customerSchool}` +
           `\n📆 ${dateStr}${timeStr}${locationStr}`;
         await notifyUsers(removedIds, text);
       }
@@ -202,7 +202,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
         };
         const text =
           `🔔 <b>Lịch chụp cập nhật trạng thái</b>\n` +
-          `👥 ${customerName}${customerSchool}\n` +
+          `👥 ${customerName} - ${customerSchool}\n` +
           `📆 ${dateStr}${timeStr}${locationStr}\n` +
           `Trạng thái: ${statusLabel[newStatus] ?? newStatus}`;
 
