@@ -140,12 +140,13 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   void (async () => {
     try {
       const full = await Schedule.findById(schedule._id)
-        .populate<{ customer: Pick<ICustomer, 'className'> }>('customer', 'className')
+        .populate<{ customer: Pick<ICustomer, 'className' | 'school'> }>('customer', 'className school')
         .lean();
       if (!full) return;
 
       const dateStr = new Date(full.shootDate).toLocaleDateString('vi-VN');
       const customerName = full.customer?.className ?? 'Khách hàng';
+      const customerSchool = full.customer?.school ? ` – ${full.customer.school}` : '';
       const timeStr = full.startTime ? ` • ${full.startTime}` : '';
       const locationStr = full.location ? `\n📍 ${full.location}` : '';
 
@@ -177,7 +178,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       if (addedIds.length) {
         const text =
           `📅 <b>Bạn được phân công lịch chụp</b>\n` +
-          `👥 ${customerName}\n` +
+          `👥 ${customerName}${customerSchool}\n` +
           `📆 ${dateStr}${timeStr}${locationStr}`;
         await notifyUsers(addedIds, text);
       }
@@ -185,7 +186,8 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       if (removedIds.length) {
         const text =
           `🗑 <b>Bạn đã được gỡ khỏi lịch chụp</b>\n` +
-          `👥 ${customerName} • ${dateStr}`;
+          `👥 ${customerName}${customerSchool}` +
+          `\n📆 ${dateStr}${timeStr}${locationStr}`;
         await notifyUsers(removedIds, text);
       }
 
@@ -200,7 +202,8 @@ export const update = async (req: Request, res: Response): Promise<void> => {
         };
         const text =
           `🔔 <b>Lịch chụp cập nhật trạng thái</b>\n` +
-          `👥 ${customerName} • ${dateStr}\n` +
+          `👥 ${customerName}${customerSchool}\n` +
+          `📆 ${dateStr}${timeStr}${locationStr}\n` +
           `Trạng thái: ${statusLabel[newStatus] ?? newStatus}`;
 
         const currentIds = [full.leadPhotographer, ...full.supportPhotographers]
