@@ -146,7 +146,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
 
       const dateStr = new Date(full.shootDate).toLocaleDateString('vi-VN');
       const customerName = full.customer?.className ?? 'Khách hàng';
-      const customerSchool = full.customer?.school ? ` – ${full.customer.school}` : '';
+      const customerSchool = full.customer?.school || '';
       const timeStr = full.startTime ? ` • ${full.startTime}` : '';
       const locationStr = full.location ? `\n📍 ${full.location}` : '';
 
