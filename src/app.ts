@@ -17,6 +17,7 @@ import studentRoutes from './routes/students';
 import transactionRoutes from './routes/transactions';
 import userRoutes from './routes/users';
 import telegramRoutes from './routes/telegram';
+import seasonController from './routes/season';
 
 const envFile = '.env';
 dotenv.config({ path: path.resolve(__dirname, '..', envFile) });
@@ -41,6 +42,7 @@ app.use('/api/public', publicRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/feedbacks', feedbackRoutes);
 app.use('/api/telegram', telegramRoutes);
+app.use('/api/seasons', seasonController);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
