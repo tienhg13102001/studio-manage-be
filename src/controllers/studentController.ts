@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
 import Student from '../models/Student';
-import type { ErrorResponse, PaginatedResponse, StudentResponse } from '../types/dto';
+import type { StudentResponse } from '../types/dto';
+import { sendResponse } from '../utils/response';
 
 export const getAll = async (
   req: Request,
-  res: Response<PaginatedResponse<StudentResponse>>,
+  res: Response,
 ): Promise<void> => {
   const { customer, search, page = '1', limit = '50' } = req.query as Record<string, string>;
   const query: Record<string, unknown> = {};
@@ -22,32 +23,38 @@ export const getAll = async (
     Student.countDocuments({ ...query, gender: 'male' }),
     Student.countDocuments({ ...query, gender: 'female' }),
   ]);
-  res.json({ data, total, totalMale, totalFemale, page: Number(page), limit: Number(limit) });
+  sendResponse(res, 200, true, 'OK', data, {
+    total,
+    totalMale,
+    totalFemale,
+    page: Number(page),
+    limit: Number(limit),
+  });
 };
 
 export const getOne = async (
   req: Request,
-  res: Response<StudentResponse | ErrorResponse>,
+  res: Response,
 ): Promise<void> => {
   const student = await Student.findById(req.params.id)
     .populate('costumes')
     .lean<StudentResponse | null>();
   if (!student) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(student);
+  sendResponse(res, 200, true, 'OK', student);
 };
 
-export const create = async (req: Request, res: Response<StudentResponse>): Promise<void> => {
+export const create = async (req: Request, res: Response): Promise<void> => {
   const created = await Student.create(req.body);
   const student = await Student.findById(created._id).populate('costumes').lean<StudentResponse>();
-  res.status(201).json(student as StudentResponse);
+  sendResponse(res, 201, true, 'Tạo học sinh thành công', student);
 };
 
 export const update = async (
   req: Request,
-  res: Response<StudentResponse | ErrorResponse>,
+  res: Response,
 ): Promise<void> => {
   const student = await Student.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
@@ -56,17 +63,17 @@ export const update = async (
     .populate('costumes')
     .lean<StudentResponse | null>();
   if (!student) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(student);
+  sendResponse(res, 200, true, 'Cập nhật thành công', student);
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
   const student = await Student.findByIdAndDelete(req.params.id);
   if (!student) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json({ message: 'Deleted' });
+  sendResponse(res, 200, true, 'Đã xóa học sinh');
 };

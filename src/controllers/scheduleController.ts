@@ -4,8 +4,9 @@ import path from 'path';
 import Schedule from '../models/Schedule';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
-import type { ErrorResponse, PaginatedResponse, ScheduleResponse } from '../types/dto';
+import type { ScheduleResponse } from '../types/dto';
 import { notifyUsers } from '../services/telegramService';
+import { sendResponse } from '../utils/response';
 
 const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
 const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
@@ -34,7 +35,7 @@ const buildFilter = (q: ScheduleQuery) => {
 
 export const getAll = async (
   req: Request,
-  res: Response<PaginatedResponse<ScheduleResponse>>,
+  res: Response,
 ): Promise<void> => {
   const { page = '1', limit = '20', ...rest } = req.query as ScheduleQuery;
   const filter = buildFilter(rest);
@@ -53,12 +54,12 @@ export const getAll = async (
       .lean<ScheduleResponse[]>(),
     Schedule.countDocuments(filter),
   ]);
-  res.json({ data, total, page: Number(page), limit: Number(limit) });
+  sendResponse(res, 200, true, 'OK', data, { total, page: Number(page), limit: Number(limit) });
 };
 
 export const getByCustomer = async (
   req: Request,
-  res: Response<ScheduleResponse | null>,
+  res: Response,
 ): Promise<void> => {
   const schedule = await Schedule.findOne({ customer: req.params.customer })
     .populate('customer')
@@ -69,12 +70,12 @@ export const getByCustomer = async (
     .populate('bookedBy')
     .sort({ shootDate: -1 })
     .lean<ScheduleResponse | null>();
-  res.json(schedule);
+  sendResponse(res, 200, true, 'OK', schedule);
 };
 
 export const getOne = async (
   req: Request,
-  res: Response<ScheduleResponse | ErrorResponse>,
+  res: Response,
 ): Promise<void> => {
   const schedule = await Schedule.findById(req.params.id)
     .populate('customer')
@@ -85,15 +86,15 @@ export const getOne = async (
     .populate('bookedBy')
     .lean<ScheduleResponse | null>();
   if (!schedule) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(schedule);
+  sendResponse(res, 200, true, 'OK', schedule);
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   const schedule = await Schedule.create(req.body);
-  res.status(201).json(schedule);
+  sendResponse(res, 201, true, 'Tạo lịch chụp thành công', schedule);
 
   // Fire-and-forget: thông báo cho nhiếp ảnh gia được phân công
   void (async () => {
@@ -130,10 +131,10 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     runValidators: true,
   });
   if (!schedule) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(schedule);
+  sendResponse(res, 200, true, 'Cập nhật thành công', schedule);
 
   if (!prevSchedule) return;
 
@@ -220,10 +221,10 @@ export const update = async (req: Request, res: Response): Promise<void> => {
 export const remove = async (req: Request, res: Response): Promise<void> => {
   const schedule = await Schedule.findByIdAndDelete(req.params.id);
   if (!schedule) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json({ message: 'Deleted' });
+  sendResponse(res, 200, true, 'Đã xóa lịch chụp');
 };
 
 export const exportContract = async (req: Request, res: Response): Promise<void> => {

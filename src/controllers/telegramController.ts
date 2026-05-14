@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import User from '../models/User';
 import { sendMessage } from '../services/telegramService';
+import { sendResponse } from '../utils/response';
 
 /**
  * POST /api/telegram/generate-link-token
@@ -18,7 +19,7 @@ export const generateLinkToken = async (req: Request, res: Response): Promise<vo
   });
 
   const botUsername = process.env.TELEGRAM_BOT_USERNAME;
-  res.json({
+  sendResponse(res, 200, true, 'OK', {
     token,
     url: `https://t.me/${botUsername}?start=${token}`,
     expiresAt,
@@ -36,7 +37,7 @@ export const unlinkTelegram = async (req: Request, res: Response): Promise<void>
     telegramLinkToken: null,
     telegramLinkTokenExpiry: null,
   });
-  res.json({ message: 'Đã huỷ liên kết Telegram' });
+  sendResponse(res, 200, true, 'Đã huỷ liên kết Telegram');
 };
 
 /**
@@ -45,7 +46,7 @@ export const unlinkTelegram = async (req: Request, res: Response): Promise<void>
  */
 export const getTelegramStatus = async (req: Request, res: Response): Promise<void> => {
   const user = await User.findById(req.user!._id).select('telegramId telegramUsername').lean();
-  res.json({
+  sendResponse(res, 200, true, 'OK', {
     linked: !!user?.telegramId,
     telegramUsername: user?.telegramUsername ?? null,
   });
@@ -59,7 +60,7 @@ export const getTelegramStatus = async (req: Request, res: Response): Promise<vo
 export const handleWebhook = async (req: Request, res: Response): Promise<void> => {
   const secretToken = req.headers['x-telegram-bot-api-secret-token'];
   if (!process.env.TELEGRAM_WEBHOOK_SECRET || secretToken !== process.env.TELEGRAM_WEBHOOK_SECRET) {
-    res.status(403).json({ message: 'Forbidden' });
+    sendResponse(res, 403, false, 'Forbidden');
     return;
   }
 

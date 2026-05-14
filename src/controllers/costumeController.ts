@@ -1,14 +1,15 @@
 import { Request, Response } from 'express';
 import Costume from '../models/Costume';
+import { sendResponse } from '../utils/response';
 
 export const getAll = async (_req: Request, res: Response): Promise<void> => {
   const costumes = await Costume.find().populate('type').sort({ name: 1 });
-  res.json(costumes);
+  sendResponse(res, 200, true, 'OK', costumes);
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   const costume = await Costume.create(req.body);
-  res.status(201).json(costume);
+  sendResponse(res, 201, true, 'Tạo trang phục thành công', costume);
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
@@ -17,17 +18,17 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     runValidators: true,
   });
   if (!costume) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(costume);
+  sendResponse(res, 200, true, 'Cập nhật thành công', costume);
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
   const costume = await Costume.findByIdAndDelete(req.params.id);
   if (!costume) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json({ message: 'Deleted' });
+  sendResponse(res, 200, true, 'Đã xóa trang phục');
 };

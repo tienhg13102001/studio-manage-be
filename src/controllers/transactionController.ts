@@ -1,12 +1,11 @@
 import { Request, Response } from 'express';
 import Transaction from '../models/Transaction';
 import type {
-  ErrorResponse,
-  PaginatedResponse,
   TransactionResponse,
   TransactionSummaryRow,
 } from '../types/dto';
 import { notifyByRoles } from '../services/telegramService';
+import { sendResponse } from '../utils/response';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1 || r === 5);
 
@@ -38,7 +37,7 @@ const buildFilter = (q: TransactionQuery) => {
 
 export const getAll = async (
   req: Request,
-  res: Response<PaginatedResponse<TransactionResponse>>,
+  res: Response,
 ): Promise<void> => {
   const { page = '1', limit = '20', ...rest } = req.query as TransactionQuery;
   const filter = buildFilter(rest);
@@ -57,12 +56,12 @@ export const getAll = async (
       .lean<TransactionResponse[]>(),
     Transaction.countDocuments(filter),
   ]);
-  res.json({ data, total, page: Number(page), limit: Number(limit) });
+  sendResponse(res, 200, true, 'OK', data, { total, page: Number(page), limit: Number(limit) });
 };
 
 export const getOne = async (
   req: Request,
-  res: Response<TransactionResponse | ErrorResponse>,
+  res: Response,
 ): Promise<void> => {
   const tx = await Transaction.findById(req.params.id)
     .populate('customer')
@@ -70,17 +69,17 @@ export const getOne = async (
     .populate('createdBy')
     .lean<TransactionResponse | null>();
   if (!tx) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(tx);
+  sendResponse(res, 200, true, 'OK', tx);
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   const createdBy =
     isPrivileged(req.user!.roles) && req.body.createdBy ? req.body.createdBy : req.user!._id;
   const tx = await Transaction.create({ ...req.body, createdBy });
-  res.status(201).json(tx);
+  sendResponse(res, 201, true, 'Tạo giao dịch thành công', tx);
 
   // Fire-and-forget: thông báo admin/kế toán khi có giao dịch mới
   void (async () => {
@@ -110,24 +109,24 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     runValidators: true,
   });
   if (!tx) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(tx);
+  sendResponse(res, 200, true, 'Cập nhật thành công', tx);
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
   const tx = await Transaction.findByIdAndDelete(req.params.id);
   if (!tx) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json({ message: 'Deleted' });
+  sendResponse(res, 200, true, 'Đã xóa giao dịch');
 };
 
 export const getSummary = async (
   req: Request,
-  res: Response<TransactionSummaryRow[]>,
+  res: Response,
 ): Promise<void> => {
   const { dateFrom, dateTo } = req.query as { dateFrom?: string; dateTo?: string };
   const matchDate: Record<string, Date> = {};
@@ -175,5 +174,5 @@ export const getSummary = async (
     { $sort: { 'customer.className': 1 } },
   ]);
 
-  res.json(rows);
+  sendResponse(res, 200, true, 'OK', rows);
 };

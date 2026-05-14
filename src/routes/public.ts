@@ -6,6 +6,7 @@ import Schedule from '../models/Schedule';
 import Package from '../models/Package';
 import * as feedbackController from '../controllers/feedbackController';
 import type { CostumeDto, PublicScheduleResponse } from '../types/dto';
+import { sendResponse } from '../utils/response';
 
 const router = Router();
 
@@ -20,41 +21,41 @@ router.get('/packages', async (_req: Request, res: Response): Promise<void> => {
     )
     .populate('costumes', 'name')
     .sort({ pricePerMember: 1 });
-  res.json(packages);
+  sendResponse(res, 200, true, 'OK', packages);
 });
 
 // Get all classes (for public form selector)
 router.get('/customers', async (_req: Request, res: Response): Promise<void> => {
   const customers = await Customer.find({}).select('className school').sort({ className: 1 });
-  res.json(customers);
+  sendResponse(res, 200, true, 'OK', customers);
 });
 
 // Get class info by id (for form title)
 router.get('/customers/:id', async (req: Request, res: Response): Promise<void> => {
   const customer = await Customer.findById(req.params.id).select('className school');
   if (!customer) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(customer);
+  sendResponse(res, 200, true, 'OK', customer);
 });
 
 // Get students by class (for display on public form)
 router.get('/students', async (req: Request, res: Response): Promise<void> => {
   const { customer } = req.query as Record<string, string>;
   if (!customer) {
-    res.status(400).json({ message: 'customer is required' });
+    sendResponse(res, 400, false, 'customer is required');
     return;
   }
   const students = await Student.find({ customer }).sort({ name: 1 });
-  res.json(students);
+  sendResponse(res, 200, true, 'OK', students);
 });
 
 // Submit student info (public)
 router.post('/students', async (req: Request, res: Response): Promise<void> => {
   const { customer, name, gender, height, weight, notes, costumes } = req.body;
   if (!customer || !name || !gender) {
-    res.status(400).json({ message: 'customer, name và gender là bắt buộc' });
+    sendResponse(res, 400, false, 'customer, name và gender là bắt buộc');
     return;
   }
   const student = await Student.create({
@@ -66,13 +67,13 @@ router.post('/students', async (req: Request, res: Response): Promise<void> => {
     notes,
     costumes: Array.isArray(costumes) ? costumes : [],
   });
-  res.status(201).json(student);
+  sendResponse(res, 201, true, 'Tạo học sinh thành công', student);
 });
 
 // Get shoot schedule by class (public, minimal fields)
 router.get(
   '/schedules/customer/:customer',
-  async (req: Request, res: Response<PublicScheduleResponse | null>): Promise<void> => {
+  async (req: Request, res: Response): Promise<void> => {
     const schedule = await Schedule.findOne({ customer: req.params.customer })
       .select('shootDate startTime endTime location status package customer costumes')
       .populate('costumes', '_id name description gender type createdAt')
@@ -102,7 +103,7 @@ router.get(
       } | null>();
 
     if (!schedule) {
-      res.json(null);
+      sendResponse(res, 200, true, 'OK', null);
       return;
     }
 
@@ -127,7 +128,7 @@ router.get(
         : null,
     };
 
-    res.json(response);
+    sendResponse(res, 200, true, 'OK', response);
   },
 );
 

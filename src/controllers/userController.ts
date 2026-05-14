@@ -1,41 +1,42 @@
 import { Request, Response } from 'express';
 import User from '../models/User';
+import { sendResponse } from '../utils/response';
 
 export const getPhotographers = async (_req: Request, res: Response): Promise<void> => {
   const users = await User.find({ roles: { $in: [3] }, isActive: true })
     .select('_id username name roles')
     .sort({ username: 1 });
-  res.json(users);
+  sendResponse(res, 200, true, 'OK', users);
 };
 
 export const getSales = async (_req: Request, res: Response): Promise<void> => {
   const users = await User.find({ roles: { $in: [2, 4] }, isActive: true })
     .select('_id username name roles')
     .sort({ username: 1 });
-  res.json(users);
+  sendResponse(res, 200, true, 'OK', users);
 };
 export const getAll = async (_req: Request, res: Response): Promise<void> => {
   const users = await User.find().sort({ createdAt: -1 });
-  res.json(users);
+  sendResponse(res, 200, true, 'OK', users);
 };
 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const user = await User.findById(req.params.id);
   if (!user) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(user);
+  sendResponse(res, 200, true, 'OK', user);
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   const exists = await User.findOne({ username: req.body.username });
   if (exists) {
-    res.status(409).json({ message: 'Username already exists' });
+    sendResponse(res, 409, false, 'Username already exists');
     return;
   }
   const user = await User.create(req.body);
-  res.status(201).json({
+  sendResponse(res, 201, true, 'Tạo người dùng thành công', {
     _id: user._id,
     username: user.username,
     name: user.name,
@@ -48,7 +49,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   const { password, ...rest } = req.body as { password?: string; [key: string]: unknown };
   const user = await User.findById(req.params.id).select('+password');
   if (!user) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
 
@@ -56,7 +57,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   if (password) user.password = password;
   await user.save();
 
-  res.json({
+  sendResponse(res, 200, true, 'Cập nhật thành công', {
     _id: user._id,
     username: user.username,
     name: user.name,
@@ -68,8 +69,8 @@ export const update = async (req: Request, res: Response): Promise<void> => {
 export const remove = async (req: Request, res: Response): Promise<void> => {
   const user = await User.findByIdAndDelete(req.params.id);
   if (!user) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json({ message: 'Deleted' });
+  sendResponse(res, 200, true, 'Đã xóa người dùng');
 };

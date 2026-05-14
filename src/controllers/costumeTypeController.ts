@@ -1,14 +1,15 @@
 import { Request, Response } from 'express';
 import CostumeType from '../models/CostumeType';
+import { sendResponse } from '../utils/response';
 
 export const getAll = async (_req: Request, res: Response): Promise<void> => {
   const types = await CostumeType.find().sort({ name: 1 });
-  res.json(types);
+  sendResponse(res, 200, true, 'OK', types);
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   const type = await CostumeType.create(req.body);
-  res.status(201).json(type);
+  sendResponse(res, 201, true, 'Tạo loại trang phục thành công', type);
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
@@ -17,17 +18,17 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     runValidators: true,
   });
   if (!type) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(type);
+  sendResponse(res, 200, true, 'Cập nhật thành công', type);
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
   const type = await CostumeType.findByIdAndDelete(req.params.id);
   if (!type) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json({ message: 'Deleted' });
+  sendResponse(res, 200, true, 'Đã xóa loại trang phục');
 };

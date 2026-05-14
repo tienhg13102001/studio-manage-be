@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import Feedback from '../models/Feedback';
-import type { FeedbackListResponse, FeedbackResponse } from '../types/dto';
+import type { FeedbackResponse } from '../types/dto';
+import { sendResponse } from '../utils/response';
 
-export const getAll = async (req: Request, res: Response<FeedbackListResponse>): Promise<void> => {
+export const getAll = async (req: Request, res: Response): Promise<void> => {
   const { page = '1', limit = '20', isRead } = req.query as Record<string, string>;
   const query: Record<string, unknown> = {};
   if (isRead === 'true') query.isRead = true;
@@ -20,7 +21,13 @@ export const getAll = async (req: Request, res: Response<FeedbackListResponse>):
     Feedback.countDocuments({ isRead: false }),
   ]);
   const totalRead = total - totalUnread;
-  res.json({ data, total, totalRead, totalUnread, page: Number(page), limit: Number(limit) });
+  sendResponse(res, 200, true, 'OK', data, {
+    total,
+    totalRead,
+    totalUnread,
+    page: Number(page),
+    limit: Number(limit),
+  });
 };
 
 export const markRead = async (req: Request, res: Response): Promise<void> => {
@@ -30,19 +37,19 @@ export const markRead = async (req: Request, res: Response): Promise<void> => {
     { new: true },
   );
   if (!feedback) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json(feedback);
+  sendResponse(res, 200, true, 'Cập nhật thành công', feedback);
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
   const feedback = await Feedback.findByIdAndDelete(req.params.id);
   if (!feedback) {
-    res.status(404).json({ message: 'Not found' });
+    sendResponse(res, 404, false, 'Not found');
     return;
   }
-  res.json({ message: 'Deleted' });
+  sendResponse(res, 200, true, 'Đã xóa feedback');
 };
 
 // Public: submit feedback
@@ -53,15 +60,15 @@ export const submit = async (req: Request, res: Response): Promise<void> => {
   const albumRating = Number(albumFeedback?.rating);
 
   if (!crewRating || !albumRating) {
-    res.status(400).json({ message: 'crewFeedback.rating và albumFeedback.rating là bắt buộc' });
+    sendResponse(res, 400, false, 'crewFeedback.rating và albumFeedback.rating là bắt buộc');
     return;
   }
   if (crewRating < 1 || crewRating > 5 || albumRating < 1 || albumRating > 5) {
-    res.status(400).json({ message: 'Đánh giá phải từ 1 đến 5' });
+    sendResponse(res, 400, false, 'Đánh giá phải từ 1 đến 5');
     return;
   }
   if (!crewFeedback?.description?.trim() || !albumFeedback?.description?.trim()) {
-    res.status(400).json({ message: 'Vui lòng chia sẻ thêm về ekip và album' });
+    sendResponse(res, 400, false, 'Vui lòng chia sẻ thêm về ekip và album');
     return;
   }
 
@@ -79,5 +86,5 @@ export const submit = async (req: Request, res: Response): Promise<void> => {
     content,
     suggestion,
   });
-  res.status(201).json({ _id: feedback._id });
+  sendResponse(res, 201, true, 'Gửi đánh giá thành công', { _id: feedback._id });
 };
