@@ -3,8 +3,9 @@ import Customer from '../models/Customer';
 import { sendResponse } from '../utils/response';
 
 export const getAll = async (req: Request, res: Response): Promise<void> => {
-  const { search, page = '1', limit = '20' } = req.query as Record<string, string>;
-  const query = search ? { $text: { $search: search } } : {};
+  const { search, page = '1', limit = '20', season } = req.query as Record<string, string>;
+  const query: Record<string, unknown> = search ? { $text: { $search: search } } : {};
+  if (season) query.season = season;
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
     Customer.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),

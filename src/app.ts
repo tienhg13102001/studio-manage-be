@@ -8,7 +8,6 @@ import categoryRoutes from './routes/categories';
 import costumeRoutes from './routes/costumes';
 import costumeTypeRoutes from './routes/costumeTypes';
 import customerRoutes from './routes/customers';
-import dashboardRoutes from './routes/dashboard';
 import feedbackRoutes from './routes/feedbacks';
 import packageRoutes from './routes/packages';
 import publicRoutes from './routes/public';
@@ -18,6 +17,7 @@ import transactionRoutes from './routes/transactions';
 import userRoutes from './routes/users';
 import telegramRoutes from './routes/telegram';
 import seasonController from './routes/season';
+import dashboardRoutes from './routes/dashboard';
 
 const envFile = '.env';
 dotenv.config({ path: path.resolve(__dirname, '..', envFile) });
@@ -39,10 +39,10 @@ app.use('/api/packages', packageRoutes);
 app.use('/api/costumes', costumeRoutes);
 app.use('/api/costume-types', costumeTypeRoutes);
 app.use('/api/public', publicRoutes);
-app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/feedbacks', feedbackRoutes);
 app.use('/api/telegram', telegramRoutes);
 app.use('/api/seasons', seasonController);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

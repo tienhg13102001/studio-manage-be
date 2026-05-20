@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Transaction from '../models/Transaction';
 import Customer from '../models/Customer';
 import Schedule from '../models/Schedule';
+import Season from '../models/Season';
 import type { UpcomingScheduleDto } from '../types/dto';
 import { sendResponse } from '../utils/response';
 
@@ -10,10 +11,33 @@ const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || 
 const isPhotographer = (roles: number[]): boolean => roles.includes(3);
 
 export const getStats = async (req: Request, res: Response): Promise<void> => {
-  const { userId, months: monthsStr } = req.query as { userId?: string; months?: string };
-  const months = Math.max(1, Math.min(12, parseInt(monthsStr ?? '6', 10) || 6));
+  const { userId, months: monthsStr, season } = req.query as { userId?: string; months?: string; season?: string };
   const privileged = isPrivileged(req.user!.roles);
   const userRoles = req.user!.roles as number[];
+
+  const now = new Date();
+
+  // Determine window based on season (uses season's actual date range) or rolling months fallback.
+  let windowStart: Date;
+  let windowEnd: Date;
+
+  if (season) {
+    const seasonDoc = await Season.findById(season).select('startDate endDate').lean();
+    if (seasonDoc) {
+      windowStart = new Date(seasonDoc.startDate);
+      windowStart.setHours(0, 0, 0, 0);
+      windowEnd = new Date(seasonDoc.endDate);
+      windowEnd.setHours(23, 59, 59, 999);
+    } else {
+      const months = Math.max(1, Math.min(24, parseInt(monthsStr ?? '12', 10) || 12));
+      windowStart = new Date(now.getFullYear(), now.getMonth() - months, now.getDate(), 0, 0, 0, 0);
+      windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    }
+  } else {
+    const months = Math.max(1, Math.min(24, parseInt(monthsStr ?? '12', 10) || 12));
+    windowStart = new Date(now.getFullYear(), now.getMonth() - months, now.getDate(), 0, 0, 0, 0);
+    windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  }
 
   // Determine userId to filter — non-admin always uses own ID
   let filterUserId: mongoose.Types.ObjectId | null = null;
@@ -23,20 +47,7 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
     filterUserId = new mongoose.Types.ObjectId(userId);
   }
 
-  const now = new Date();
-  // Window: [now - N months, now]
-  const windowStart = new Date(
-    now.getFullYear(),
-    now.getMonth() - months,
-    now.getDate(),
-    0,
-    0,
-    0,
-    0,
-  );
-  const windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-  const txFilter = filterUserId ? { createdBy: filterUserId } : {};
+  const txFilter: Record<string, unknown> = filterUserId ? { createdBy: filterUserId } : {};
   const dateRange = { $gte: windowStart, $lte: windowEnd };
 
   // Window income/expense totals
@@ -81,11 +92,16 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
     expense: r.expense,
   }));
 
-  // Customer count within window (by createdAt)
+  // Customer count: when a season is selected, count customers belonging to that season;
+  // otherwise count customers created within the window.
   const customerFilter: Record<string, unknown> = {
     ...(filterUserId ? { createdBy: filterUserId } : {}),
-    createdAt: dateRange,
   };
+  if (season) {
+    customerFilter.season = season;
+  } else {
+    customerFilter.createdAt = dateRange;
+  }
   const customerCount = await Customer.countDocuments(customerFilter);
 
   // Schedule count & upcoming — only for photographers or admin
@@ -99,13 +115,13 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
 
     if (filterUserId) {
       scheduleFilter = {
-        ...shootDateFilter,
+        ...scheduleFilter,
         $or: [{ leadPhotographer: filterUserId }, { supportPhotographers: filterUserId }],
       };
     } else if (!privileged && isPhotographer(userRoles)) {
       const selfId = req.user!._id;
       scheduleFilter = {
-        ...shootDateFilter,
+        ...scheduleFilter,
         $or: [{ leadPhotographer: selfId }, { supportPhotographers: selfId }],
       };
     }

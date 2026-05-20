@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import Schedule from '../models/Schedule';
+import Customer from '../models/Customer';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
 import type { ScheduleResponse } from '../types/dto';
@@ -18,6 +19,7 @@ interface ScheduleQuery {
   dateTo?: string;
   page?: string;
   limit?: string;
+  season?: string;
 }
 
 const buildFilter = (q: ScheduleQuery) => {
@@ -37,8 +39,12 @@ export const getAll = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
-  const { page = '1', limit = '20', ...rest } = req.query as ScheduleQuery;
+  const { page = '1', limit = '20', season, ...rest } = req.query as ScheduleQuery;
   const filter = buildFilter(rest);
+  if (season) {
+    const seasonCustomers = await Customer.find({ season }).select('_id').lean();
+    filter.customer = { $in: seasonCustomers.map((c) => c._id) };
+  }
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
     Schedule.find(filter)

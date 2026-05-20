@@ -11,6 +11,7 @@
     "check": "tsc --noEmit && prettier --check \"src/**/*.{ts,json}\"",
     "seed": "ts-node src/utils/seed.ts",
     "migrate:package-duration": "ts-node src/utils/migratePackageDuration.ts",
+    "migrate:customer-season": "ts-node src/utils/migrateCustomerSeason.ts",
     "format": "prettier --write \"src/**/*.{ts,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,json}\""
   },

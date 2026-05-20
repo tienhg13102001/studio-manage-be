@@ -1,10 +1,9 @@
 import { Router } from 'express';
-import { protect } from '../middleware/auth';
 import { getStats } from '../controllers/dashboardController';
+import { protect } from '../middleware/auth';
 
 const router = Router();
 
-router.use(protect);
-router.get('/', getStats);
+router.get('/', protect, getStats);
 
 export default router;

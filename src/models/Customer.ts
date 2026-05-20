@@ -11,6 +11,7 @@ export interface ICustomer extends Document {
   totalFemale: number;
   notes?: string;
   createdBy?: Types.ObjectId;
+  season?: Types.ObjectId | null;
 }
 
 const customerSchema = new Schema<ICustomer>(
@@ -25,6 +26,7 @@ const customerSchema = new Schema<ICustomer>(
     totalFemale: { type: Number, required: true, default: 0 },
     notes: { type: String },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    season: { type: Schema.Types.ObjectId, ref: 'Season', default: null },
   },
   { timestamps: true },
 );

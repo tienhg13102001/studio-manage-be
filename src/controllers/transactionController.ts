@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Transaction from '../models/Transaction';
+import Season from '../models/Season';
 import type {
   TransactionResponse,
   TransactionSummaryRow,
@@ -18,6 +19,7 @@ interface TransactionQuery {
   dateTo?: string;
   page?: string;
   limit?: string;
+  season?: string;
 }
 
 const buildFilter = (q: TransactionQuery) => {
@@ -39,10 +41,22 @@ export const getAll = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
-  const { page = '1', limit = '20', ...rest } = req.query as TransactionQuery;
+  const { page = '1', limit = '20', season, ...rest } = req.query as TransactionQuery;
   const filter = buildFilter(rest);
   if (!isPrivileged(req.user!.roles)) {
     filter.createdBy = req.user!._id;
+  }
+  // When a season is selected and the user hasn't specified an explicit date range,
+  // use the season's date range so overhead transactions (without a customer) are included.
+  if (season && !rest.dateFrom && !rest.dateTo) {
+    const seasonDoc = await Season.findById(season).select('startDate endDate').lean();
+    if (seasonDoc) {
+      const start = new Date(seasonDoc.startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(seasonDoc.endDate);
+      end.setHours(23, 59, 59, 999);
+      filter.date = { $gte: start, $lte: end };
+    }
   }
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
