@@ -1,6 +1,20 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import Customer from '../models/Customer';
+import Season from '../models/Season';
 import { sendResponse } from '../utils/response';
+
+/** Tìm mùa chụp hiện tại (ngày hôm nay nằm trong khoảng startDate–endDate). */
+const resolveCurrentSeason = async (): Promise<Types.ObjectId | null> => {
+  const today = new Date();
+  const season = await Season.findOne({
+    startDate: { $lte: today },
+    endDate: { $gte: today },
+  })
+    .select('_id')
+    .lean<{ _id: Types.ObjectId } | null>();
+  return season?._id ?? null;
+};
 
 export const getAll = async (req: Request, res: Response): Promise<void> => {
   const { search, page = '1', limit = '20', season } = req.query as Record<string, string>;
@@ -24,7 +38,11 @@ export const getOne = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
-  const customer = await Customer.create({ ...req.body, createdBy: req.user!._id });
+  const payload = { ...req.body, createdBy: req.user!._id };
+  if (!payload.season) {
+    payload.season = await resolveCurrentSeason();
+  }
+  const customer = await Customer.create(payload);
   sendResponse(res, 201, true, 'Tạo khách hàng thành công', customer);
 };
 

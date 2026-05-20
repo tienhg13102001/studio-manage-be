@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import Transaction from '../models/Transaction';
 import Season from '../models/Season';
 import type {
@@ -9,6 +10,21 @@ import { notifyByRoles } from '../services/telegramService';
 import { sendResponse } from '../utils/response';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1 || r === 5);
+
+/** Tìm mùa chụp chứa ngày `date`. */
+const resolveSeasonForDate = async (
+  date: string | Date | undefined,
+): Promise<Types.ObjectId | null> => {
+  if (!date) return null;
+  const d = new Date(date);
+  const season = await Season.findOne({
+    startDate: { $lte: d },
+    endDate: { $gte: d },
+  })
+    .select('_id')
+    .lean<{ _id: Types.ObjectId } | null>();
+  return season?._id ?? null;
+};
 
 interface TransactionQuery {
   customer?: string;
@@ -92,7 +108,11 @@ export const getOne = async (
 export const create = async (req: Request, res: Response): Promise<void> => {
   const createdBy =
     isPrivileged(req.user!.roles) && req.body.createdBy ? req.body.createdBy : req.user!._id;
-  const tx = await Transaction.create({ ...req.body, createdBy });
+  const payload = { ...req.body, createdBy };
+  if (!payload.season) {
+    payload.season = await resolveSeasonForDate(payload.date);
+  }
+  const tx = await Transaction.create(payload);
   sendResponse(res, 201, true, 'Tạo giao dịch thành công', tx);
 
   // Fire-and-forget: thông báo admin/kế toán khi có giao dịch mới
@@ -117,6 +137,10 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   const updateData = { ...req.body };
   if (!isPrivileged(req.user!.roles)) {
     delete updateData.createdBy;
+  }
+  // Nếu đổi ngày mà client không gửi season, tự tính lại
+  if (updateData.date && !updateData.season) {
+    updateData.season = await resolveSeasonForDate(updateData.date);
   }
   const tx = await Transaction.findByIdAndUpdate(req.params.id, updateData, {
     new: true,
