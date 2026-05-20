@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import Schedule from '../models/Schedule';
-import Customer from '../models/Customer';
+import Season from '../models/Season';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
 import type { ScheduleResponse } from '../types/dto';
@@ -35,6 +36,21 @@ const buildFilter = (q: ScheduleQuery) => {
   return filter;
 };
 
+/** Tìm mùa chụp chứa ngày `date` (dựa trên startDate/endDate). */
+const resolveSeasonForDate = async (
+  date: Date | string | undefined,
+): Promise<Types.ObjectId | null> => {
+  if (!date) return null;
+  const d = new Date(date);
+  const season = await Season.findOne({
+    startDate: { $lte: d },
+    endDate: { $gte: d },
+  })
+    .select('_id')
+    .lean<{ _id: Types.ObjectId } | null>();
+  return season?._id ?? null;
+};
+
 export const getAll = async (
   req: Request,
   res: Response,
@@ -42,8 +58,7 @@ export const getAll = async (
   const { page = '1', limit = '20', season, ...rest } = req.query as ScheduleQuery;
   const filter = buildFilter(rest);
   if (season) {
-    const seasonCustomers = await Customer.find({ season }).select('_id').lean();
-    filter.customer = { $in: seasonCustomers.map((c) => c._id) };
+    filter.season = season;
   }
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total] = await Promise.all([
@@ -99,7 +114,11 @@ export const getOne = async (
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
-  const schedule = await Schedule.create(req.body);
+  const payload = { ...req.body };
+  if (payload.season === undefined || payload.season === null || payload.season === '') {
+    payload.season = await resolveSeasonForDate(payload.shootDate);
+  }
+  const schedule = await Schedule.create(payload);
   sendResponse(res, 201, true, 'Tạo lịch chụp thành công', schedule);
 
   // Fire-and-forget: thông báo cho nhiếp ảnh gia được phân công
@@ -132,7 +151,17 @@ export const create = async (req: Request, res: Response): Promise<void> => {
 
 export const update = async (req: Request, res: Response): Promise<void> => {
   const prevSchedule = await Schedule.findById(req.params.id).lean();
-  const schedule = await Schedule.findByIdAndUpdate(req.params.id, req.body, {
+  const updateData = { ...req.body };
+  // Nếu đổi ngày chụp mà client không gửi season, tự động tính lại theo mùa.
+  if (
+    updateData.shootDate &&
+    (updateData.season === undefined ||
+      updateData.season === null ||
+      updateData.season === '')
+  ) {
+    updateData.season = await resolveSeasonForDate(updateData.shootDate);
+  }
+  const schedule = await Schedule.findByIdAndUpdate(req.params.id, updateData, {
     new: true,
     runValidators: true,
   });

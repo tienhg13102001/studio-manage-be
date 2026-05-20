@@ -9,8 +9,8 @@ import Schedule from '../models/Schedule';
 import Season from '../models/Season';
 
 const migrate = async (): Promise<void> => {
-  await mongoose.connect(process.env.MONGO_URI as string);
-  console.log('Connected to MongoDB');
+  await mongoose.connect(process.env.MONGO_URI_PROD as string);
+  console.log('Connected to MongoDB', process.env.MONGO_URI_PROD );
 
   const seasons = await Season.find({}).sort({ startDate: 1 });
   if (seasons.length === 0) {

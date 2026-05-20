@@ -13,6 +13,7 @@ export interface ISchedule extends Document {
   bookedBy?: Types.ObjectId;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   notes?: string;
+  season?: Types.ObjectId | null;
 }
 
 const scheduleSchema = new Schema<ISchedule>(
@@ -33,6 +34,7 @@ const scheduleSchema = new Schema<ISchedule>(
       default: 'pending',
     },
     notes: { type: String },
+    season: { type: Schema.Types.ObjectId, ref: 'Season', default: null },
   },
   { timestamps: true },
 );
@@ -40,5 +42,6 @@ const scheduleSchema = new Schema<ISchedule>(
 scheduleSchema.index({ shootDate: 1 });
 scheduleSchema.index({ customer: 1 });
 scheduleSchema.index({ status: 1 });
+scheduleSchema.index({ season: 1 });
 
 export default mongoose.model<ISchedule>('Schedule', scheduleSchema);

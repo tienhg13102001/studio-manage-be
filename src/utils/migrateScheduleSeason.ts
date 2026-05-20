@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config({ path: path.join(__dirname, '../..', '.env') });
 
 import mongoose from 'mongoose';
-import Transaction from '../models/Transaction';
+import Schedule from '../models/Schedule';
 import Season from '../models/Season';
 
 const migrate = async (): Promise<void> => {
@@ -20,32 +20,37 @@ const migrate = async (): Promise<void> => {
 
   console.log(`Tìm thấy ${seasons.length} mùa chụp:`);
   for (const s of seasons) {
-    console.log(`  • ${s.name}: ${s.startDate.toISOString().slice(0, 10)} → ${s.endDate.toISOString().slice(0, 10)}`);
+    console.log(
+      `  • ${s.name}: ${s.startDate.toISOString().slice(0, 10)} → ${s.endDate.toISOString().slice(0, 10)}`,
+    );
   }
 
   let totalUpdated = 0;
-  let totalSkipped = 0;
 
   for (const season of seasons) {
-    console.log("🚀 ~ migrate ~ season:", season)
-    const result = await Transaction.updateMany(
+    const result = await Schedule.updateMany(
       {
-        date: { $gte: season.startDate, $lte: season.endDate },
+        shootDate: { $gte: season.startDate, $lte: season.endDate },
       },
       { $set: { season: season._id } },
     );
-    console.log(`[${season.name}] Cập nhật ${result.modifiedCount} giao dịch`);
+    console.log(`[${season.name}] Cập nhật ${result.modifiedCount} lịch chụp`);
     totalUpdated += result.modifiedCount;
   }
 
-  // Báo cáo giao dịch không khớp mùa nào
-  const unmatched = await Transaction.countDocuments({ season: null });
+  // Báo cáo lịch chụp không khớp mùa nào
+  const unmatched = await Schedule.countDocuments({
+    $or: [{ season: null }, { season: { $exists: false } }],
+  });
   if (unmatched > 0) {
-    console.log(`\n⚠️  ${unmatched} giao dịch không nằm trong mùa chụp nào (giữ season = null)`);
+    console.log(
+      `\n⚠️  ${unmatched} lịch chụp không nằm trong mùa chụp nào (giữ season = null)`,
+    );
   }
-  totalSkipped = unmatched;
 
-  console.log(`\n✅ Hoàn tất: ${totalUpdated} giao dịch đã gán mùa, ${totalSkipped} bỏ qua`);
+  console.log(
+    `\n✅ Hoàn tất: ${totalUpdated} lịch chụp đã gán mùa, ${unmatched} bỏ qua`,
+  );
 
   await mongoose.disconnect();
   console.log('Disconnected');

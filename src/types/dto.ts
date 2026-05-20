@@ -76,6 +76,7 @@ export interface ScheduleDto {
   bookedBy: string | null;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   notes?: string;
+  season?: string | null;
   createdAt?: string;
 }
 
