@@ -1,17 +1,13 @@
 import { Request, Response } from 'express';
-import { Types } from 'mongoose';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import Schedule from '../models/Schedule';
-import Season from '../models/Season';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
 import type { ScheduleResponse } from '../types/dto';
 import { notifyUsers } from '../services/telegramService';
+import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
-
-const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
-const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
 
 interface ScheduleQuery {
   customer?: string;
@@ -36,20 +32,8 @@ const buildFilter = (q: ScheduleQuery) => {
   return filter;
 };
 
-/** Tìm mùa chụp chứa ngày `date` (dựa trên startDate/endDate). */
-const resolveSeasonForDate = async (
-  date: Date | string | undefined,
-): Promise<Types.ObjectId | null> => {
-  if (!date) return null;
-  const d = new Date(date);
-  const season = await Season.findOne({
-    startDate: { $lte: d },
-    endDate: { $gte: d },
-  })
-    .select('_id')
-    .lean<{ _id: Types.ObjectId } | null>();
-  return season?._id ?? null;
-};
+const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
+const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
 
 export const getAll = async (
   req: Request,
@@ -61,14 +45,16 @@ export const getAll = async (
     filter.season = season;
   }
   const skip = (Number(page) - 1) * Number(limit);
+  const USER_FIELDS = '_id username name roles isActive createdAt';
+  const CUSTOMER_FIELDS = '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
   const [data, total] = await Promise.all([
     Schedule.find(filter)
-      .populate('customer')
+      .populate('customer', CUSTOMER_FIELDS)
       .populate({ path: 'package', populate: { path: 'costumes' } })
       .populate('costumes')
-      .populate('leadPhotographer')
-      .populate('supportPhotographers')
-      .populate('bookedBy')
+      .populate('leadPhotographer', USER_FIELDS)
+      .populate('supportPhotographers', USER_FIELDS)
+      .populate('bookedBy', USER_FIELDS)
       .sort({ shootDate: -1 })
       .skip(skip)
       .limit(Number(limit))
@@ -82,13 +68,15 @@ export const getByCustomer = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
+  const USER_FIELDS = '_id username name roles isActive createdAt';
+  const CUSTOMER_FIELDS = '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
   const schedule = await Schedule.findOne({ customer: req.params.customer })
-    .populate('customer')
+    .populate('customer', CUSTOMER_FIELDS)
     .populate({ path: 'package', populate: { path: 'costumes' } })
     .populate('costumes')
-    .populate('leadPhotographer')
-    .populate('supportPhotographers')
-    .populate('bookedBy')
+    .populate('leadPhotographer', USER_FIELDS)
+    .populate('supportPhotographers', USER_FIELDS)
+    .populate('bookedBy', USER_FIELDS)
     .sort({ shootDate: -1 })
     .lean<ScheduleResponse | null>();
   sendResponse(res, 200, true, 'OK', schedule);
@@ -98,13 +86,15 @@ export const getOne = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
+  const USER_FIELDS = '_id username name roles isActive createdAt';
+  const CUSTOMER_FIELDS = '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
   const schedule = await Schedule.findById(req.params.id)
-    .populate('customer')
+    .populate('customer', CUSTOMER_FIELDS)
     .populate({ path: 'package', populate: { path: 'costumes' } })
     .populate('costumes')
-    .populate('leadPhotographer')
-    .populate('supportPhotographers')
-    .populate('bookedBy')
+    .populate('leadPhotographer', USER_FIELDS)
+    .populate('supportPhotographers', USER_FIELDS)
+    .populate('bookedBy', USER_FIELDS)
     .lean<ScheduleResponse | null>();
   if (!schedule) {
     sendResponse(res, 404, false, 'Not found');

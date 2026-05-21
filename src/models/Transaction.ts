@@ -30,5 +30,8 @@ const transactionSchema = new Schema<ITransaction>(
 transactionSchema.index({ date: 1 });
 transactionSchema.index({ customer: 1 });
 transactionSchema.index({ type: 1 });
+transactionSchema.index({ season: 1 });
+transactionSchema.index({ createdBy: 1, date: 1 });
+transactionSchema.index({ season: 1, date: 1 });
 
 export default mongoose.model<ITransaction>('Transaction', transactionSchema);

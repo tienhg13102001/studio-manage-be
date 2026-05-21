@@ -32,5 +32,7 @@ const customerSchema = new Schema<ICustomer>(
 );
 
 customerSchema.index({ className: 'text', school: 'text' });
+customerSchema.index({ season: 1, createdAt: -1 });
+customerSchema.index({ createdBy: 1, createdAt: -1 });
 
 export default mongoose.model<ICustomer>('Customer', customerSchema);

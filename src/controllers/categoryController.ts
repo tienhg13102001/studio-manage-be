@@ -5,7 +5,7 @@ import { sendResponse } from '../utils/response';
 export const getAll = async (req: Request, res: Response): Promise<void> => {
   const { type } = req.query as { type?: 'income' | 'expense' };
   const filter: Record<string, unknown> = type ? { type } : {};
-  const cats = await Category.find(filter).sort({ type: 1, name: 1 });
+  const cats = await Category.find(filter).sort({ type: 1, name: 1 }).lean();
   sendResponse(res, 200, true, 'OK', cats);
 };
 

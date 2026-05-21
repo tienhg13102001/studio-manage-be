@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Season from '../models/Season';
+import { clearSeasonCache } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 
 export const getAll = async (
@@ -18,6 +19,7 @@ export const create = async (req: Request, res: Response): Promise<void> => {
   }
   const season = new Season({ name, startDate, endDate });
   await season.save();
+  clearSeasonCache();
   sendResponse(res, 201, true, 'Tạo mùa chụp thành công', season);
 };
 
@@ -33,6 +35,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     sendResponse(res, 404, false, 'Season not found');
     return;
   }
+  clearSeasonCache();
   sendResponse(res, 200, true, 'Cập nhật thành công', season);
 };
 
@@ -43,5 +46,6 @@ export const remove = async (req: Request, res: Response): Promise<void> => {
     sendResponse(res, 404, false, 'Season not found');
     return;
   }
+  clearSeasonCache();
   sendResponse(res, 200, true, 'Đã xóa mùa chụp');
 };

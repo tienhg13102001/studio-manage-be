@@ -17,4 +17,7 @@ const seasonSchema = new mongoose.Schema<ISeason>(
   { timestamps: true }
 );
 
+// Compound index for resolveSeasonForDate queries (startDate <= date <= endDate)
+seasonSchema.index({ startDate: 1, endDate: 1 });
+
 export default mongoose.model<ISeason>("Season", seasonSchema);

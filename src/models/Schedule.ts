@@ -43,5 +43,8 @@ scheduleSchema.index({ shootDate: 1 });
 scheduleSchema.index({ customer: 1 });
 scheduleSchema.index({ status: 1 });
 scheduleSchema.index({ season: 1 });
+scheduleSchema.index({ season: 1, shootDate: -1 });
+scheduleSchema.index({ leadPhotographer: 1, shootDate: 1 });
+scheduleSchema.index({ supportPhotographers: 1, shootDate: 1 });
 
 export default mongoose.model<ISchedule>('Schedule', scheduleSchema);

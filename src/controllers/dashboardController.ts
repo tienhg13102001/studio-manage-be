@@ -50,50 +50,7 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
   const txFilter: Record<string, unknown> = filterUserId ? { createdBy: filterUserId } : {};
   const dateRange = { $gte: windowStart, $lte: windowEnd };
 
-  // Window income/expense totals
-  const totalsRaw = await Transaction.aggregate([
-    { $match: { ...txFilter, date: dateRange } },
-    { $group: { _id: '$type', total: { $sum: '$amount' } } },
-  ]);
-  const income = totalsRaw.find((r) => r._id === 'income')?.total ?? 0;
-  const expense = totalsRaw.find((r) => r._id === 'expense')?.total ?? 0;
-
-  // Daily breakdown: group by actual transaction date (only days with data).
-  const dailyRaw: Array<{
-    _id: { year: number; month: number; day: number };
-    income: number;
-    expense: number;
-  }> = await Transaction.aggregate([
-    { $match: { ...txFilter, date: dateRange } },
-    {
-      $group: {
-        _id: {
-          year: { $year: '$date' },
-          month: { $month: '$date' },
-          day: { $dayOfMonth: '$date' },
-          type: '$type',
-        },
-        total: { $sum: '$amount' },
-      },
-    },
-    {
-      $group: {
-        _id: { year: '$_id.year', month: '$_id.month', day: '$_id.day' },
-        income: { $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] } },
-        expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
-      },
-    },
-    { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
-  ]);
-
-  const daily = dailyRaw.map((r) => ({
-    label: `${r._id.year}-${String(r._id.month).padStart(2, '0')}-${String(r._id.day).padStart(2, '0')}`,
-    income: r.income,
-    expense: r.expense,
-  }));
-
-  // Customer count: when a season is selected, count customers belonging to that season;
-  // otherwise count customers created within the window.
+  // Customer filter
   const customerFilter: Record<string, unknown> = {
     ...(filterUserId ? { createdBy: filterUserId } : {}),
   };
@@ -102,7 +59,57 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
   } else {
     customerFilter.createdAt = dateRange;
   }
-  const customerCount = await Customer.countDocuments(customerFilter);
+
+  // Merge totals + daily into one $facet aggregation, and run it in parallel with customerCount.
+  type TxFacetResult = [{
+    totals: Array<{ _id: string; total: number }>;
+    daily: Array<{ _id: { year: number; month: number; day: number }; income: number; expense: number }>;
+  }];
+  const [txFacetResult, customerCount] = await Promise.all([
+    Transaction.aggregate<TxFacetResult[0]>([
+      { $match: { ...txFilter, date: dateRange } },
+      {
+        $facet: {
+          totals: [
+            { $group: { _id: '$type', total: { $sum: '$amount' } } },
+          ],
+          daily: [
+            {
+              $group: {
+                _id: {
+                  year: { $year: '$date' },
+                  month: { $month: '$date' },
+                  day: { $dayOfMonth: '$date' },
+                  type: '$type',
+                },
+                total: { $sum: '$amount' },
+              },
+            },
+            {
+              $group: {
+                _id: { year: '$_id.year', month: '$_id.month', day: '$_id.day' },
+                income: { $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] } },
+                expense: { $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] } },
+              },
+            },
+            { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+          ],
+        },
+      },
+    ]),
+    Customer.countDocuments(customerFilter),
+  ]);
+
+  const totalsRaw = txFacetResult[0]?.totals ?? [];
+  const dailyRaw = txFacetResult[0]?.daily ?? [];
+  const income = totalsRaw.find((r) => r._id === 'income')?.total ?? 0;
+  const expense = totalsRaw.find((r) => r._id === 'expense')?.total ?? 0;
+
+  const daily = dailyRaw.map((r) => ({
+    label: `${r._id.year}-${String(r._id.month).padStart(2, '0')}-${String(r._id.day).padStart(2, '0')}`,
+    income: r.income,
+    expense: r.expense,
+  }));
 
   // Schedule count & upcoming — only for photographers or admin
   let scheduleCount = 0;

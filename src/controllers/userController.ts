@@ -16,12 +16,12 @@ export const getSales = async (_req: Request, res: Response): Promise<void> => {
   sendResponse(res, 200, true, 'OK', users);
 };
 export const getAll = async (_req: Request, res: Response): Promise<void> => {
-  const users = await User.find().sort({ createdAt: -1 });
+  const users = await User.find().sort({ createdAt: -1 }).lean();
   sendResponse(res, 200, true, 'OK', users);
 };
 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
-  const user = await User.findById(req.params.id);
+  const user = await User.findById(req.params.id).lean();
   if (!user) {
     sendResponse(res, 404, false, 'Not found');
     return;

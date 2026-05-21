@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import { Types } from 'mongoose';
 import Transaction from '../models/Transaction';
 import Season from '../models/Season';
 import type {
@@ -7,24 +6,10 @@ import type {
   TransactionSummaryRow,
 } from '../types/dto';
 import { notifyByRoles } from '../services/telegramService';
+import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1 || r === 5);
-
-/** Tìm mùa chụp chứa ngày `date`. */
-const resolveSeasonForDate = async (
-  date: string | Date | undefined,
-): Promise<Types.ObjectId | null> => {
-  if (!date) return null;
-  const d = new Date(date);
-  const season = await Season.findOne({
-    startDate: { $lte: d },
-    endDate: { $gte: d },
-  })
-    .select('_id')
-    .lean<{ _id: Types.ObjectId } | null>();
-  return season?._id ?? null;
-};
 
 interface TransactionQuery {
   customer?: string;
@@ -75,11 +60,13 @@ export const getAll = async (
     }
   }
   const skip = (Number(page) - 1) * Number(limit);
+  const USER_FIELDS = '_id username name roles isActive createdAt';
+  const CUSTOMER_FIELDS = '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
   const [data, total] = await Promise.all([
     Transaction.find(filter)
-      .populate('customer')
+      .populate('customer', CUSTOMER_FIELDS)
       .populate('categoryId')
-      .populate('createdBy')
+      .populate('createdBy', USER_FIELDS)
       .sort({ date: -1 })
       .skip(skip)
       .limit(Number(limit))
