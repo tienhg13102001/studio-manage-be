@@ -14,6 +14,7 @@ export interface ISchedule extends Document {
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   notes?: string;
   season?: Types.ObjectId | null;
+  contractUrl?: string;
 }
 
 const scheduleSchema = new Schema<ISchedule>(
@@ -35,6 +36,7 @@ const scheduleSchema = new Schema<ISchedule>(
     },
     notes: { type: String },
     season: { type: Schema.Types.ObjectId, ref: 'Season', default: null },
+    contractUrl: { type: String },
   },
   { timestamps: true },
 );
