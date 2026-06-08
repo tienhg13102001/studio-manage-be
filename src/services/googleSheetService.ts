@@ -83,3 +83,51 @@ export async function createFolderAndLog(
     clearTimeout(timeout);
   }
 }
+
+export interface DeletePayload {
+  scheduleId: string;
+  season: string;
+  folderId?: string;
+}
+
+/**
+ * Gọi Apps Script để xoá folder bộ ảnh (vào thùng rác) và dòng tương ứng trong
+ * Google Sheet khi xoá lịch chụp. Trả về true nếu webhook báo thành công.
+ */
+export async function deleteFolderAndRow(payload: DeletePayload): Promise<boolean> {
+  const GAS_URL = process.env.GAS_WEBHOOK_URL ?? '';
+  const GAS_SECRET = process.env.GAS_WEBHOOK_SECRET ?? '';
+
+  if (!GAS_URL) {
+    console.warn('[GoogleSheet] GAS_WEBHOOK_URL chưa cấu hình → bỏ qua xoá folder/sheet');
+    return false;
+  }
+  console.log('[GoogleSheet] → xoá folder/row', JSON.stringify(payload));
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: GAS_SECRET, action: 'delete', ...payload }),
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    const raw = await res.text();
+    console.log(`[GoogleSheet] ← HTTP ${res.status}`, raw.slice(0, 200));
+    if (!res.ok) return false;
+    try {
+      const data = JSON.parse(raw) as { ok?: boolean };
+      return data.ok === true;
+    } catch {
+      console.error('[GoogleSheet] xoá: response không phải JSON (kiểm tra quyền web app).');
+      return false;
+    }
+  } catch (err) {
+    console.error('[GoogleSheet] gọi webhook xoá thất bại:', err);
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}

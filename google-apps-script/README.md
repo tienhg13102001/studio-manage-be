@@ -4,9 +4,14 @@ Web App nhận webhook từ backend: mỗi khi tạo lịch chụp, BE gọi t�
 folder Drive cho bộ ảnh và ghi 1 dòng vào Google Sheet quản lý nội bộ.
 
 Cấu trúc theo **mùa (season)**:
-- Drive: `<folder gốc>/<Tên mùa>/<Trường - Lớp - Ngày>` — folder mùa được
-  tìm hoặc tạo tự động.
-- Sheet: mỗi mùa là 1 tab riêng (tên tab = tên mùa), tự tạo nếu chưa có.
+- Drive: `<folder gốc>/<Tên mùa>/<Ngày - Lớp Trường - Địa điểm>` — folder mùa và
+  folder bộ ảnh đều được **tìm-hoặc-tạo**: nếu đã tồn tại thì dùng lại link cũ,
+  không tạo trùng.
+- Sheet: mỗi mùa là 1 tab riêng (tên tab = tên mùa), tự tạo nếu chưa có. Mỗi lịch
+  ghi 1 dòng định danh theo `scheduleId`: **đã có thì cập nhật dòng đó**, chưa có
+  thì thêm dòng mới (không nhân bản).
+- Xoá lịch (`action: 'delete'`): chuyển folder bộ ảnh vào **thùng rác** Drive (theo
+  `folderId`) và **xoá dòng** tương ứng trong Sheet (theo `scheduleId`).
 
 ## Thiết lập
 

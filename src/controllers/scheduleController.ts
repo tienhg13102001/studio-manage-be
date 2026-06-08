@@ -7,7 +7,7 @@ import type { IUser } from '../models/User';
 import type { ISeason } from '../models/Season';
 import type { ScheduleResponse } from '../types/dto';
 import { notifyUsers } from '../services/telegramService';
-import { createFolderAndLog } from '../services/googleSheetService';
+import { createFolderAndLog, deleteFolderAndRow } from '../services/googleSheetService';
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 
@@ -311,12 +311,24 @@ export const update = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
-  const schedule = await Schedule.findByIdAndDelete(req.params.id);
-  if (!schedule) {
+  // Lấy season name + folderId trước khi xoá để dọn folder Drive & dòng Sheet
+  const target = await Schedule.findById(req.params.id)
+    .populate<{ season: Pick<ISeason, 'name'> }>('season', 'name')
+    .lean();
+  if (!target) {
     sendResponse(res, 404, false, 'Not found');
     return;
   }
+
+  await Schedule.findByIdAndDelete(req.params.id);
   sendResponse(res, 200, true, 'Đã xóa lịch chụp');
+
+  // Dọn dẹp Google Drive + Sheet (chạy nền, không chặn response)
+  void deleteFolderAndRow({
+    scheduleId: String(target._id),
+    season: (target.season as unknown as { name?: string })?.name ?? 'Chưa phân mùa',
+    folderId: target.driveFolderId,
+  }).catch((e: unknown) => console.error('[Schedule] dọn Google Drive/Sheet khi xoá thất bại:', e));
 };
 
 export const exportContract = async (req: Request, res: Response): Promise<void> => {

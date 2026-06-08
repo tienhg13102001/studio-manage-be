@@ -3,11 +3,15 @@
  *
  * Khi BE tạo lịch chụp, nó POST tới URL Web App này. Script sẽ:
  *   1. Xác thực `secret` khớp Script Property "SECRET".
- *   2. Trong ROOT_FOLDER_ID: tìm (hoặc tạo) folder theo tên mùa, rồi tạo folder
- *      bộ ảnh con đặt tên theo trường/lớp/ngày bên trong folder mùa đó.
- *   3. Trong Google Sheet (SHEET_ID): tìm (hoặc tạo) tab theo tên mùa rồi ghi 1
- *      dòng vào đó.
+ *   2. Trong ROOT_FOLDER_ID: tìm (hoặc tạo) folder theo tên mùa, rồi tìm-hoặc-tạo
+ *      folder bộ ảnh con theo tên trường/lớp/ngày (đã tồn tại thì dùng lại, không
+ *      tạo trùng).
+ *   3. Trong Google Sheet (SHEET_ID): tìm (hoặc tạo) tab theo tên mùa. Tìm dòng
+ *      theo scheduleId — đã có thì cập nhật dòng đó, chưa có thì thêm dòng mới.
  *   4. Trả JSON { ok, folderId, folderUrl }.
+ *
+ * Khi XOÁ lịch chụp (body.action === 'delete'): chuyển folder bộ ảnh vào thùng
+ * rác (theo folderId) và xoá dòng tương ứng trong Sheet (theo scheduleId).
  *
  * ─── Cấu hình (Project Settings → Script Properties) ───
  *   SECRET          : chuỗi bí mật, trùng GAS_WEBHOOK_SECRET bên backend
@@ -53,17 +57,21 @@ function doPost(e) {
       return _json({ ok: false, error: 'missing ROOT_FOLDER_ID or SHEET_ID' });
     }
 
+    if (body.action === 'delete') {
+      return _handleDelete(body, sheetId);
+    }
+
     var seasonName = body.season || 'Chưa phân mùa';
 
-    // 1. Tìm/tạo folder mùa trong folder gốc, rồi tạo folder bộ ảnh bên trong
+    // 1. Tìm/tạo folder mùa, rồi tìm-hoặc-tạo folder bộ ảnh (không tạo trùng)
     var root = DriveApp.getFolderById(rootId);
     var seasonFolder = _getOrCreateChildFolder(root, seasonName);
     var folderName = _buildFolderName(body);
-    var folder = seasonFolder.createFolder(folderName);
+    var folder = _getOrCreateChildFolder(seasonFolder, folderName);
     var folderId = folder.getId();
     var folderUrl = folder.getUrl();
 
-    // 2. Tìm/tạo tab theo tên mùa rồi ghi 1 dòng
+    // 2. Tìm/tạo tab theo tên mùa
     var ss = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName(seasonName);
     if (!sheet) {
@@ -72,8 +80,15 @@ function doPost(e) {
     if (sheet.getLastRow() === 0) {
       sheet.appendRow(HEADERS);
     }
-    sheet.appendRow([
-      new Date(),
+
+    // 3. Tìm dòng theo scheduleId → có thì cập nhật, chưa có thì thêm mới
+    var scheduleId = body.scheduleId || '';
+    var existingRow = scheduleId ? _findRowByScheduleId(sheet, scheduleId) : -1;
+    var createdAt =
+      existingRow > 0 ? sheet.getRange(existingRow, 1).getValue() || new Date() : new Date();
+
+    var rowValues = [
+      createdAt,
       body.school || '',
       body.className || '',
       body.shootDate || '',
@@ -84,8 +99,14 @@ function doPost(e) {
       folderUrl,
       body.status || '',
       body.contractUrl || '',
-      body.scheduleId || '',
-    ]);
+      scheduleId,
+    ];
+
+    if (existingRow > 0) {
+      sheet.getRange(existingRow, 1, 1, rowValues.length).setValues([rowValues]);
+    } else {
+      sheet.appendRow(rowValues);
+    }
 
     return _json({ ok: true, folderId: folderId, folderUrl: folderUrl });
   } catch (err) {
@@ -96,6 +117,53 @@ function doPost(e) {
 function _getOrCreateChildFolder(parent, name) {
   var it = parent.getFoldersByName(name);
   return it.hasNext() ? it.next() : parent.createFolder(name);
+}
+
+// Xoá khi nhận action 'delete': bỏ folder vào thùng rác + xoá dòng Sheet.
+function _handleDelete(body, sheetId) {
+  var trashedFolder = false;
+  var deletedRow = false;
+
+  // 1. Chuyển folder bộ ảnh vào thùng rác (theo folderId)
+  if (body.folderId) {
+    try {
+      DriveApp.getFolderById(body.folderId).setTrashed(true);
+      trashedFolder = true;
+    } catch (err) {
+      // folder không tồn tại / đã xoá → bỏ qua
+    }
+  }
+
+  // 2. Xoá dòng tương ứng trong tab mùa (theo scheduleId)
+  var scheduleId = body.scheduleId || '';
+  var seasonName = body.season || 'Chưa phân mùa';
+  if (scheduleId) {
+    var ss = SpreadsheetApp.openById(sheetId);
+    var sheet = ss.getSheetByName(seasonName);
+    if (sheet) {
+      var row = _findRowByScheduleId(sheet, scheduleId);
+      if (row > 0) {
+        sheet.deleteRow(row);
+        deletedRow = true;
+      }
+    }
+  }
+
+  return _json({ ok: true, trashedFolder: trashedFolder, deletedRow: deletedRow });
+}
+
+// Tìm dòng có scheduleId (cột cuối) khớp; trả về số dòng (1-based) hoặc -1.
+function _findRowByScheduleId(sheet, scheduleId) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1; // chỉ có header hoặc rỗng
+  var col = HEADERS.length; // scheduleId là cột cuối cùng
+  var values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][0]) === String(scheduleId)) {
+      return i + 2; // +2 vì bắt đầu từ dòng 2
+    }
+  }
+  return -1;
 }
 
 function _buildFolderName(body) {
