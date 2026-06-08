@@ -177,11 +177,21 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       const locationStr = full.location ? `\n📍 ${full.location}` : '';
 
       // ── 1. Phát hiện thay đổi thợ chụp ──────────────────────────────────
+      // Chỉ tính thay đổi khi client thực sự gửi field tương ứng. Nếu chỉ cập
+      // nhật field khác (vd: contractUrl) thì giữ nguyên thợ cũ, tránh báo nhầm
+      // "được gỡ khỏi lịch chụp".
+      const leadProvided = 'leadPhotographer' in req.body;
+      const supportsProvided = Array.isArray(req.body?.supportPhotographers);
+
       const prevLead = prevSchedule.leadPhotographer?.toString() ?? null;
-      const newLead = req.body?.leadPhotographer ? String(req.body.leadPhotographer) : null;
+      const newLead = leadProvided
+        ? req.body.leadPhotographer
+          ? String(req.body.leadPhotographer)
+          : null
+        : prevLead;
 
       const prevSupports = (prevSchedule.supportPhotographers ?? []).map((id) => id.toString());
-      const newSupports: string[] = Array.isArray(req.body?.supportPhotographers)
+      const newSupports: string[] = supportsProvided
         ? req.body.supportPhotographers.map(String)
         : prevSupports;
 
@@ -231,6 +241,22 @@ export const update = async (req: Request, res: Response): Promise<void> => {
           `👥 ${customerName} - ${customerSchool}\n` +
           `📆 ${dateStr}${timeStr}${locationStr}\n` +
           `Trạng thái: ${statusLabel[newStatus] ?? newStatus}`;
+
+        const currentIds = [full.leadPhotographer, ...full.supportPhotographers]
+          .filter(Boolean)
+          .map(String);
+        if (currentIds.length) await notifyUsers(currentIds, text);
+      }
+
+      // ── 3. Thông báo tạo hợp đồng ──────────────────────────────────────
+      const newContractUrl = req.body?.contractUrl as string | undefined;
+      const prevContractUrl = prevSchedule.contractUrl ?? null;
+      if (newContractUrl && newContractUrl !== prevContractUrl) {
+        const text =
+          `📄 <b>Hợp đồng đã được tạo</b>\n` +
+          `👥 ${customerName} - ${customerSchool}\n` +
+          `📆 ${dateStr}${timeStr}${locationStr}\n` +
+          `🔗 ${newContractUrl}`;
 
         const currentIds = [full.leadPhotographer, ...full.supportPhotographers]
           .filter(Boolean)
