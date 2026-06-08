@@ -15,6 +15,8 @@ export interface ISchedule extends Document {
   notes?: string;
   season?: Types.ObjectId | null;
   contractUrl?: string;
+  driveFolderUrl?: string;
+  driveFolderId?: string;
 }
 
 const scheduleSchema = new Schema<ISchedule>(
@@ -37,6 +39,8 @@ const scheduleSchema = new Schema<ISchedule>(
     notes: { type: String },
     season: { type: Schema.Types.ObjectId, ref: 'Season', default: null },
     contractUrl: { type: String },
+    driveFolderUrl: { type: String },
+    driveFolderId: { type: String },
   },
   { timestamps: true },
 );

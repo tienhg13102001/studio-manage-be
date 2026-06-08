@@ -4,8 +4,10 @@ import path from 'path';
 import Schedule from '../models/Schedule';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
+import type { ISeason } from '../models/Season';
 import type { ScheduleResponse } from '../types/dto';
 import { notifyUsers } from '../services/telegramService';
+import { createFolderAndLog } from '../services/googleSheetService';
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 
@@ -35,10 +37,7 @@ const buildFilter = (q: ScheduleQuery) => {
 const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
 const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
 
-export const getAll = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const getAll = async (req: Request, res: Response): Promise<void> => {
   const { page = '1', limit = '20', season, ...rest } = req.query as ScheduleQuery;
   const filter = buildFilter(rest);
   if (season) {
@@ -46,7 +45,8 @@ export const getAll = async (
   }
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
-  const CUSTOMER_FIELDS = '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
+  const CUSTOMER_FIELDS =
+    '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
   const [data, total] = await Promise.all([
     Schedule.find(filter)
       .populate('customer', CUSTOMER_FIELDS)
@@ -64,12 +64,10 @@ export const getAll = async (
   sendResponse(res, 200, true, 'OK', data, { total, page: Number(page), limit: Number(limit) });
 };
 
-export const getByCustomer = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
-  const CUSTOMER_FIELDS = '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
+  const CUSTOMER_FIELDS =
+    '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
   const schedule = await Schedule.findOne({ customer: req.params.customer })
     .populate('customer', CUSTOMER_FIELDS)
     .populate({ path: 'package', populate: { path: 'costumes' } })
@@ -82,12 +80,10 @@ export const getByCustomer = async (
   sendResponse(res, 200, true, 'OK', schedule);
 };
 
-export const getOne = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const getOne = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
-  const CUSTOMER_FIELDS = '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
+  const CUSTOMER_FIELDS =
+    '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
   const schedule = await Schedule.findById(req.params.id)
     .populate('customer', CUSTOMER_FIELDS)
     .populate({ path: 'package', populate: { path: 'costumes' } })
@@ -109,34 +105,79 @@ export const create = async (req: Request, res: Response): Promise<void> => {
     payload.season = await resolveSeasonForDate(payload.shootDate);
   }
   const schedule = await Schedule.create(payload);
+
+  // Lấy bản populate để dựng tên folder + nội dung thông báo
+  const full = await Schedule.findById(schedule._id)
+    .populate<{ customer: Pick<ICustomer, 'className' | 'school'> }>('customer', 'className school')
+    .populate<{ leadPhotographer: Pick<IUser, 'name'> }>('leadPhotographer', 'name')
+    .populate<{ supportPhotographers: Pick<IUser, 'name'>[] }>('supportPhotographers', 'name')
+    .populate<{ season: Pick<ISeason, 'name'> }>('season', 'name')
+    .lean();
+
+  const dateStr = new Date(schedule.shootDate).toLocaleDateString('vi-VN');
+  const ids = full
+    ? [full.leadPhotographer, ...full.supportPhotographers]
+        .filter(Boolean)
+        .map((p) => String((p as { _id?: unknown })?._id ?? p))
+    : [];
+
+  // ── Tạo folder Drive + ghi Sheet ĐỒNG BỘ, lưu driveFolderUrl trước khi trả về ──
+  if (full) {
+    try {
+      const leadName = (full.leadPhotographer as unknown as { name?: string })?.name;
+      const supportNames = (full.supportPhotographers as unknown as { name?: string }[])
+        .map((p) => p?.name)
+        .filter((n): n is string => Boolean(n));
+      const seasonName = (full.season as unknown as { name?: string })?.name ?? 'Chưa phân mùa';
+
+      const result = await createFolderAndLog({
+        scheduleId: String(full._id),
+        season: seasonName,
+        school: full.customer?.school ?? '',
+        className: full.customer?.className ?? '',
+        shootDate: dateStr,
+        startTime: full.startTime,
+        location: full.location,
+        leadPhotographer: leadName,
+        supportPhotographers: supportNames,
+        contractUrl: full.contractUrl,
+        status: full.status,
+      });
+
+      if (result?.folderUrl) {
+        schedule.driveFolderUrl = result.folderUrl;
+        schedule.driveFolderId = result.folderId;
+        await schedule.save();
+      }
+    } catch (e) {
+      console.error('[Schedule] tạo folder Drive thất bại:', e);
+    }
+  }
+
+  // Trả response sau khi đã có driveFolderUrl (nếu tạo folder thành công)
   sendResponse(res, 201, true, 'Tạo lịch chụp thành công', schedule);
 
-  // Fire-and-forget: thông báo cho nhiếp ảnh gia được phân công
-  void (async () => {
-    try {
-      const full = await Schedule.findById(schedule._id)
-        .populate<{ customer: Pick<ICustomer, 'className' | 'school'> }>('customer', 'className school')
-        .lean();
-      if (!full) return;
-
-      const dateStr = new Date(full.shootDate).toLocaleDateString('vi-VN');
-      const customerName = full.customer?.className ?? 'Khách hàng';
-      const timeStr = full.startTime ? ` • ${full.startTime}` : '';
-      const locationStr = full.location ? `\n📍 ${full.location}` : '';
-
-      const text =
-        `📅 <b>Lịch chụp mới được tạo</b>\n` +
-        `👥 ${customerName}\n` +
-        `📆 ${dateStr}${timeStr}${locationStr}`;
-
-      const ids = [full.leadPhotographer, ...full.supportPhotographers]
-        .filter(Boolean)
-        .map(String);
-      if (ids.length) await notifyUsers(ids, text);
-    } catch (e) {
-      console.error('[Telegram] schedule create notification failed:', e);
-    }
-  })();
+  // ── Thông báo Telegram chạy nền (không chặn response) ──
+  if (ids.length) {
+    const timeStr = schedule.startTime ? ` • ${schedule.startTime}` : '';
+    const locationStr = schedule.location ? `\n📍 ${schedule.location}` : '';
+    const customerName = full?.customer?.className ?? 'Khách hàng';
+    const text =
+      `📅 <b>Lịch chụp mới được tạo</b>\n` +
+      `👥 ${customerName}\n` +
+      `📆 ${dateStr}${timeStr}${locationStr}`;
+    const folderUrl = schedule.driveFolderUrl;
+    void (async () => {
+      try {
+        await notifyUsers(ids, text);
+        if (folderUrl) {
+          await notifyUsers(ids, `📁 <b>Folder ảnh đã tạo</b>\n🔗 ${folderUrl}`);
+        }
+      } catch (e) {
+        console.error('[Schedule] gửi thông báo Telegram thất bại:', e);
+      }
+    })();
+  }
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
@@ -145,9 +186,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   // Nếu đổi ngày chụp mà client không gửi season, tự động tính lại theo mùa.
   if (
     updateData.shootDate &&
-    (updateData.season === undefined ||
-      updateData.season === null ||
-      updateData.season === '')
+    (updateData.season === undefined || updateData.season === null || updateData.season === '')
   ) {
     updateData.season = await resolveSeasonForDate(updateData.shootDate);
   }
@@ -166,7 +205,9 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   void (async () => {
     try {
       const full = await Schedule.findById(schedule._id)
-        .populate<{ customer: Pick<ICustomer, 'className' | 'school'> }>('customer', 'className school')
+        .populate<{
+          customer: Pick<ICustomer, 'className' | 'school'>;
+        }>('customer', 'className school')
         .lean();
       if (!full) return;
 
