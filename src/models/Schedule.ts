@@ -1,5 +1,24 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
+export interface IExtraService {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+  note?: string;
+}
+
+const extraServiceSchema = new Schema<IExtraService>(
+  {
+    name: { type: String, required: true, trim: true },
+    quantity: { type: Number, required: true },
+    unitPrice: { type: Number, required: true },
+    amount: { type: Number, required: true },
+    note: { type: String },
+  },
+  { _id: false },
+);
+
 export interface ISchedule extends Document {
   customer: Types.ObjectId;
   package?: Types.ObjectId;
@@ -17,6 +36,7 @@ export interface ISchedule extends Document {
   contractUrl?: string;
   driveFolderUrl?: string;
   driveFolderId?: string;
+  extraServices?: IExtraService[];
 }
 
 const scheduleSchema = new Schema<ISchedule>(
@@ -41,6 +61,7 @@ const scheduleSchema = new Schema<ISchedule>(
     contractUrl: { type: String },
     driveFolderUrl: { type: String },
     driveFolderId: { type: String },
+    extraServices: { type: [extraServiceSchema], default: [] },
   },
   { timestamps: true },
 );

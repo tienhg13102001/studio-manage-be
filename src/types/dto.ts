@@ -62,6 +62,14 @@ export interface CategoryDto {
   createdBy?: string;
 }
 
+export interface ExtraServiceDto {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+  note?: string;
+}
+
 /** Flat schedule — used for create/update payloads. */
 export interface ScheduleDto {
   _id: string;
@@ -78,6 +86,7 @@ export interface ScheduleDto {
   notes?: string;
   season?: string | null;
   contractUrl?: string;
+  extraServices?: ExtraServiceDto[];
   createdAt?: string;
 }
 
