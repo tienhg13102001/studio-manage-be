@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package.json yarn.lock* ./
-RUN yarn install --frozen-lockfile
+RUN yarn install --frozen-lockfile --network-timeout 600000
 
 COPY tsconfig.json ./
 COPY src ./src
@@ -17,7 +17,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package.json yarn.lock* ./
-RUN yarn install --production --frozen-lockfile && yarn cache clean
+RUN yarn install --production --frozen-lockfile --network-timeout 600000 && yarn cache clean
 
 COPY --from=builder /app/dist ./dist
 
