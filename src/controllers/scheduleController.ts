@@ -2,12 +2,15 @@ import { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import Schedule from '../models/Schedule';
+import Customer from '../models/Customer';
+import CustomerActivity from '../models/CustomerActivity';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
 import type { ISeason } from '../models/Season';
 import type { ScheduleResponse } from '../types/dto';
 import { notifyUsers } from '../services/telegramService';
-import { createFolderAndLog, deleteFolderAndRow } from '../services/googleSheetService';
+import { deleteFolderAndRow } from '../services/googleSheetService';
+import { createScheduleWithSideEffects } from '../services/scheduleService';
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 
@@ -100,84 +103,8 @@ export const getOne = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
-  const payload = { ...req.body };
-  if (payload.season === undefined || payload.season === null || payload.season === '') {
-    payload.season = await resolveSeasonForDate(payload.shootDate);
-  }
-  const schedule = await Schedule.create(payload);
-
-  // Lấy bản populate để dựng tên folder + nội dung thông báo
-  const full = await Schedule.findById(schedule._id)
-    .populate<{ customer: Pick<ICustomer, 'className' | 'school'> }>('customer', 'className school')
-    .populate<{ leadPhotographer: Pick<IUser, 'name'> }>('leadPhotographer', 'name')
-    .populate<{ supportPhotographers: Pick<IUser, 'name'>[] }>('supportPhotographers', 'name')
-    .populate<{ season: Pick<ISeason, 'name'> }>('season', 'name')
-    .lean();
-
-  const dateStr = new Date(schedule.shootDate).toLocaleDateString('vi-VN');
-  const ids = full
-    ? [full.leadPhotographer, ...full.supportPhotographers]
-        .filter(Boolean)
-        .map((p) => String((p as { _id?: unknown })?._id ?? p))
-    : [];
-
-  // ── Tạo folder Drive + ghi Sheet ĐỒNG BỘ, lưu driveFolderUrl trước khi trả về ──
-  if (full) {
-    try {
-      const leadName = (full.leadPhotographer as unknown as { name?: string })?.name;
-      const supportNames = (full.supportPhotographers as unknown as { name?: string }[])
-        .map((p) => p?.name)
-        .filter((n): n is string => Boolean(n));
-      const seasonName = (full.season as unknown as { name?: string })?.name ?? 'Chưa phân mùa';
-
-      const result = await createFolderAndLog({
-        scheduleId: String(full._id),
-        season: seasonName,
-        school: full.customer?.school ?? '',
-        className: full.customer?.className ?? '',
-        shootDate: dateStr,
-        startTime: full.startTime,
-        location: full.location,
-        leadPhotographer: leadName,
-        supportPhotographers: supportNames,
-        contractUrl: full.contractUrl,
-        status: full.status,
-      });
-
-      if (result?.folderUrl) {
-        schedule.driveFolderUrl = result.folderUrl;
-        schedule.driveFolderId = result.folderId;
-        await schedule.save();
-      }
-    } catch (e) {
-      console.error('[Schedule] tạo folder Drive thất bại:', e);
-    }
-  }
-
-  // Trả response sau khi đã có driveFolderUrl (nếu tạo folder thành công)
+  const schedule = await createScheduleWithSideEffects(req.body);
   sendResponse(res, 201, true, 'Tạo lịch chụp thành công', schedule);
-
-  // ── Thông báo Telegram chạy nền (không chặn response) ──
-  if (ids.length) {
-    const timeStr = schedule.startTime ? ` • ${schedule.startTime}` : '';
-    const locationStr = schedule.location ? `\n📍 ${schedule.location}` : '';
-    const customerName = full?.customer?.className ?? 'Khách hàng';
-    const text =
-      `📅 <b>Lịch chụp mới được tạo</b>\n` +
-      `👥 ${customerName}\n` +
-      `📆 ${dateStr}${timeStr}${locationStr}`;
-    const folderUrl = schedule.driveFolderUrl;
-    void (async () => {
-      try {
-        await notifyUsers(ids, text);
-        if (folderUrl) {
-          await notifyUsers(ids, `📁 <b>Folder ảnh đã tạo</b>\n🔗 ${folderUrl}`);
-        }
-      } catch (e) {
-        console.error('[Schedule] gửi thông báo Telegram thất bại:', e);
-      }
-    })();
-  }
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
@@ -198,6 +125,31 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     sendResponse(res, 404, false, 'Not found');
     return;
   }
+
+  // Có hợp đồng mới → lớp đang "Đã cọc" tự chuyển sang "Chưa chụp" (trước khi trả response
+  // để client refetch thấy ngay trạng thái mới)
+  const contractUrl = req.body?.contractUrl as string | undefined;
+  if (prevSchedule && contractUrl && contractUrl !== (prevSchedule.contractUrl ?? null)) {
+    try {
+      const moved = await Customer.findOneAndUpdate(
+        { _id: schedule.customer, status: 'deposited' },
+        { $set: { status: 'scheduled', statusChangedAt: new Date() } },
+      );
+      if (moved) {
+        await CustomerActivity.create({
+          customer: moved._id,
+          kind: 'system',
+          fromStatus: 'deposited',
+          toStatus: 'scheduled',
+          note: 'Đã tạo hợp đồng',
+          createdBy: req.user!._id,
+        });
+      }
+    } catch (e) {
+      console.error('[Schedule] cập nhật trạng thái lớp sau khi tạo hợp đồng thất bại:', e);
+    }
+  }
+
   sendResponse(res, 200, true, 'Cập nhật thành công', schedule);
 
   if (!prevSchedule) return;
