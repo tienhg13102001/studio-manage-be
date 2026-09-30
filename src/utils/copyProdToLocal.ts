@@ -12,10 +12,7 @@
  *   MONGO_URI       – chuỗi kết nối local / atlas
  */
 
-import path from 'path';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: path.join(__dirname, '../..', '.env') });
+import '../config/loadEnv';
 
 import mongoose, { Connection } from 'mongoose';
 

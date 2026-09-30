@@ -1,7 +1,7 @@
+// Nạp env trước mọi import khác (.env.local → .env)
+import './config/loadEnv';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import express from 'express';
-import path from 'path';
 import connectDB from './config/db';
 import authRoutes from './routes/auth';
 import categoryRoutes from './routes/categories';
@@ -18,9 +18,6 @@ import userRoutes from './routes/users';
 import telegramRoutes from './routes/telegram';
 import seasonController from './routes/season';
 import dashboardRoutes from './routes/dashboard';
-
-const envFile = '.env';
-dotenv.config({ path: path.resolve(__dirname, '..', envFile) });
 
 const app = express();
 
