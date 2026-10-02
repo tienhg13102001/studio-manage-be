@@ -12,10 +12,152 @@ function calcCrewCount(total, studentsPerCrew) {
   return Math.max(crew, 1);
 }
 
+// Ô tiền cọc / còn lại khi lớp chưa có tiền cọc (hợp đồng tạo trước khi cọc)
+const BLANK_AMOUNT = "………………";
+// Tên Named Range đánh dấu các ô để cập nhật lại sau (action updateDeposit)
+const RANGE_DEPOSIT = "yume_deposit";
+const RANGE_REMAINING = "yume_remaining";
+
+function jsonOut(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Tiền cọc hợp lệ (> 0) hoặc null (chưa cọc). */
+function parseDeposit(v) {
+  let n = Number(v);
+  return v !== null && v !== undefined && v !== "" && isFinite(n) && n > 0 ? n : null;
+}
+
+/** Chuỗi in ra cho ô Tiền cọc / Đợt 2: số tiền, hoặc "………" khi chưa có cọc. */
+function depositTexts(depositAmount, totalPayment) {
+  if (depositAmount === null) return { deposit: BLANK_AMOUNT, remaining: BLANK_AMOUNT };
+  let total = Number(totalPayment) || 0;
+  let remaining = total > depositAmount ? total - depositAmount : 0;
+  return { deposit: formatVndDoc(depositAmount), remaining: formatVndDoc(remaining) };
+}
+
+/**
+ * Thay `[start, end]` của `el` bằng `value`: chèn trước rồi mới xoá → giữ định dạng của đoạn
+ * cũ và phần tử text không bao giờ bị rỗng (rỗng thì Docs có thể gộp/xoá phần tử).
+ * Sau lệnh này `value` nằm ở [start, start + value.length - 1].
+ */
+function replaceTextRange(el, start, end, value) {
+  if (end >= start) {
+    el.insertText(end + 1, value);
+    el.deleteText(start, end);
+  } else {
+    el.insertText(start, value);
+  }
+}
+
+/** Đánh dấu [start, start + value.length - 1] của `el` bằng Named Range `rangeName`. */
+function addTrackedRange(doc, el, start, value, rangeName) {
+  let rb = doc.newRange();
+  rb.addElement(el, start, start + value.length - 1);
+  doc.addNamedRange(rangeName, rb.build());
+}
+
+/**
+ * Thay MỌI chỗ `placeholder` trong body bằng `value` và đánh dấu từng chỗ bằng Named Range
+ * `rangeName` (để action updateDeposit tìm lại và sửa đúng ô đó trong hợp đồng đã tạo).
+ * Gọi SAU mọi thao tác khác trên body (ngay trước saveAndClose) để range không bị xê dịch/mất.
+ */
+function fillTrackedPlaceholder(doc, body, placeholder, value, rangeName) {
+  // findText dùng regex → escape {{ }}
+  let pattern = placeholder.replace(/[{}]/g, "\\$&");
+  let found = body.findText(pattern);
+  let guard = 0;
+  while (found && guard < 50) {
+    guard++;
+    let el = found.getElement().asText();
+    let start = found.getStartOffset();
+    replaceTextRange(el, start, found.getEndOffsetInclusive(), value);
+    addTrackedRange(doc, el, start, value, rangeName);
+    // Chỗ vừa thay không còn khớp → tìm lại từ đầu
+    found = body.findText(pattern);
+  }
+}
+
+/**
+ * Sửa lại text của mọi Named Range `rangeName` thành `value` rồi đánh dấu lại (độ dài text đổi).
+ * Mỗi range được lấy lại theo id ngay trước khi sửa (Docs tự dời offset của range sau mỗi lần
+ * sửa) → không dùng offset cũ. Trả về số range đã thực sự ghi lại.
+ */
+function updateTrackedRanges(doc, rangeName, value) {
+  let ids = doc.getNamedRanges(rangeName).map(function (nr) {
+    return nr.getId();
+  });
+  let updated = 0;
+  // Duyệt ngược (range tạo sau nằm sau trong văn bản); offset luôn lấy mới theo id nên an toàn
+  for (let k = ids.length - 1; k >= 0; k--) {
+    let nr = doc.getNamedRangeById(ids[k]);
+    if (!nr) continue;
+    let elements = nr.getRange().getRangeElements();
+    // Bỏ range cũ TRƯỚC khi sửa, rồi mới đánh dấu lại range mới
+    nr.remove();
+    if (!elements.length) continue;
+    let first = elements[0];
+    let el = first.getElement().editAsText();
+    let start = first.isPartial() ? first.getStartOffset() : 0;
+    let end = first.isPartial() ? first.getEndOffsetInclusive() : el.getText().length - 1;
+    // Range trải nhiều phần tử (hiếm) → xoá phần thừa ở các phần tử sau (từ cuối lên)
+    for (let i = elements.length - 1; i >= 1; i--) {
+      let re = elements[i];
+      let t = re.getElement().editAsText();
+      if (re.isPartial()) t.deleteText(re.getStartOffset(), re.getEndOffsetInclusive());
+      else if (t.getText().length) t.deleteText(0, t.getText().length - 1);
+    }
+    replaceTextRange(el, start, end, value);
+    addTrackedRange(doc, el, start, value, rangeName);
+    updated++;
+  }
+  return updated;
+}
+
+/**
+ * action "updateDeposit": cập nhật ô Tiền cọc + Đợt 2 trong hợp đồng ĐÃ TẠO
+ * { action, documentId, depositAmount, totalPayment, secret }.
+ * BẮT BUỘC Script Property SECRET và `secret` phải khớp (thiếu → từ chối).
+ */
+function handleUpdateDeposit(data) {
+  let secret = PropertiesService.getScriptProperties().getProperty("SECRET");
+  if (!secret || data.secret !== secret) {
+    return jsonOut({ success: false, reason: "unauthorized" });
+  }
+  if (!data.documentId) return jsonOut({ success: false, reason: "missing_document_id" });
+
+  let lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+  } catch (err) {
+    return jsonOut({ success: false, reason: "busy" });
+  }
+  try {
+    let doc = DocumentApp.openById(data.documentId);
+    if (!doc.getNamedRanges(RANGE_DEPOSIT).length && !doc.getNamedRanges(RANGE_REMAINING).length) {
+      // Hợp đồng tạo trước khi có cơ chế đánh dấu → không biết ô nào để sửa
+      return jsonOut({ success: false, reason: "no_named_ranges" });
+    }
+    let depositAmount = parseDeposit(data.depositAmount);
+    let texts = depositTexts(depositAmount, data.totalPayment);
+    let updated =
+      updateTrackedRanges(doc, RANGE_DEPOSIT, texts.deposit) +
+      updateTrackedRanges(doc, RANGE_REMAINING, texts.remaining);
+    doc.saveAndClose();
+    if (!updated) return jsonOut({ success: false, reason: "empty_ranges" });
+    return jsonOut({ success: true, updated: updated, depositAmount: depositAmount });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function doPost(e) {
   try {
     // 1. Nhận và Parse dữ liệu JSON
     let data = JSON.parse(e.postData.contents);
+
+    if (data.action === "updateDeposit") return handleUpdateDeposit(data);
 
     // ==========================================
     // CẤU HÌNH ID
@@ -67,13 +209,10 @@ function doPost(e) {
     let countExtraService = extraServices.length; // số dòng dịch vụ thêm
     let totalPayment = totalAmount + extraTotal; // gói chụp + dịch vụ thêm
 
-    // Tính Đợt 1 (Cố định 500k) và Đợt 2 (Phần còn lại = tổng thanh toán - cọc)
-    let depositAmount = 500000;
-    let formattedDepositAmount = depositAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".") + " đ";
-
-    // Đợt 2 = total_payment - depositAmount (không âm)
-    let remainingAmount = totalPayment > depositAmount ? totalPayment - depositAmount : 0;
-    let formattedRemainingAmount = remainingAmount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".") + " đ";
+    // Đợt 1 = tiền cọc thực tế của lớp (data.depositAmount); chưa có cọc → in "………"
+    // Đợt 2 = total_payment - tiền cọc (không âm)
+    let depositAmount = parseDeposit(data.depositAmount);
+    let amountTexts = depositTexts(depositAmount, totalPayment);
 
     // Xử lý ngày chụp
     let shootDateStr = data.shootDate || "Không-rõ-ngày";
@@ -115,8 +254,6 @@ function doPost(e) {
     body.replaceText("{{printedPhotosCount}}", printedPhotosCount.toString());
     body.replaceText("{{totalAmount}}", formattedTotalAmount);
     body.replaceText("{{totalAmountWords}}", totalAmountWords);
-    body.replaceText("{{depositAmount}}", formattedDepositAmount); // Tiền cọc đợt 1
-    body.replaceText("{{remainingAmount}}", formattedRemainingAmount); // Tiền còn lại đợt 2
     body.replaceText("{{shootDate}}", formattedDate);
 
     // ── Render dịch vụ sử dụng thêm (đã tính extraTotal/totalPayment ở trên) ──
@@ -129,6 +266,11 @@ function doPost(e) {
     // Điền bảng dịch vụ — nhân hàng mẫu {{sv_name}} cho từng dịch vụ
     fillExtraServices(body, extraServices);
 
+    // Tiền cọc đợt 1 / còn lại đợt 2: thay tại chỗ + Named Range để cập nhật về sau.
+    // Làm cuối cùng để các thao tác khác (nhân/xoá hàng bảng…) không làm mất/lệch range.
+    fillTrackedPlaceholder(doc, body, "{{depositAmount}}", amountTexts.deposit, RANGE_DEPOSIT);
+    fillTrackedPlaceholder(doc, body, "{{remainingAmount}}", amountTexts.remaining, RANGE_REMAINING);
+
     doc.saveAndClose();
 
     // 6. Trả về kết quả
@@ -136,11 +278,14 @@ function doPost(e) {
       "status": "success",
       "message": "Đã tạo hợp đồng thành công!",
       "folder_path": yearName + "/" + dayName,
-      "document_url": doc.getUrl()
+      "document_url": doc.getUrl(),
+      "documentId": doc.getId(),
+      "totalPayment": totalPayment,
+      // Số tiền cọc đã in (null = để trống "………")
+      "depositAmount": depositAmount
     };
 
-    return ContentService.createTextOutput(JSON.stringify(response))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonOut(response);
 
   } catch (error) {
     let errorResponse = {

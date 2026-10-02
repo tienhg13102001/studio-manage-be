@@ -17,6 +17,7 @@ import {
 } from '../services/scheduleService';
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
+import { syncContractDeposit } from '../services/contractService';
 import { CREW_FORBIDDEN_MSG, canEditCrew, crewChanged, hasCrew } from '../utils/permissions';
 
 interface ScheduleQuery {
@@ -335,7 +336,7 @@ export const getBusy = async (req: Request, res: Response): Promise<void> => {
 export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit createdAt';
   if (!isValidObjectId(req.params.customer)) {
     sendResponse(res, 400, false, 'customer không hợp lệ');
     return;
@@ -358,7 +359,7 @@ export const getByCustomer = async (req: Request, res: Response): Promise<void> 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit createdAt';
   const schedule = await Schedule.findById(req.params.id)
     .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
     .populate({ path: 'package', populate: { path: 'costumes' } })
@@ -408,12 +409,56 @@ export const create = async (req: Request, res: Response): Promise<void> => {
   sendResponse(res, 201, true, 'Tạo lịch chụp thành công', schedule);
 };
 
+const CONTRACT_DOC_ID_RE = /^[\w-]{20,}$/;
+
+/** `null` hoặc số hữu hạn ≥ 0. */
+const isAmountOrNull = (v: unknown) =>
+  v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
+
+/**
+ * Kiểm tra / chuẩn hoá các field hợp đồng trong body PUT (ghi tại chỗ vào `body`).
+ * Trả về thông báo lỗi nếu không hợp lệ.
+ */
+const validateContractFields = (
+  body: Record<string, unknown>,
+  prevContractUrl: string | null | undefined,
+): string | null => {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
+  if (has('contractDocId')) {
+    const v = body.contractDocId;
+    if (v === null || v === '') body.contractDocId = null;
+    else if (typeof v !== 'string' || !CONTRACT_DOC_ID_RE.test(v)) {
+      return 'contractDocId không hợp lệ';
+    } else if (!(typeof body.contractUrl === 'string' && body.contractUrl) && !prevContractUrl) {
+      return 'contractDocId chỉ được lưu cùng contractUrl';
+    }
+  }
+  for (const k of ['contractTotal', 'contractDepositAmount']) {
+    if (has(k) && !isAmountOrNull(body[k])) return `${k} không hợp lệ`;
+  }
+  if (has('contractDepositSyncedAt')) {
+    const v = body.contractDepositSyncedAt;
+    if (v !== null) {
+      const d = typeof v === 'string' || typeof v === 'number' ? new Date(v) : null;
+      if (!d || Number.isNaN(d.getTime())) return 'contractDepositSyncedAt không hợp lệ';
+    }
+  }
+  return null;
+};
+
 export const update = async (req: Request, res: Response): Promise<void> => {
   if (!normalizeBodyStatus(req.body)) {
     sendResponse(res, 400, false, INVALID_STATUS_MSG);
     return;
   }
   const prevSchedule = await Schedule.findById(req.params.id).lean();
+  if (req.body && typeof req.body === 'object') {
+    const contractError = validateContractFields(req.body, prevSchedule?.contractUrl);
+    if (contractError) {
+      sendResponse(res, 400, false, contractError);
+      return;
+    }
+  }
   if (prevSchedule && req.body && crewChanged(req.body, prevSchedule) && !canEditCrew(req.user)) {
     sendResponse(res, 403, false, CREW_FORBIDDEN_MSG);
     return;
@@ -482,6 +527,15 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   }
 
   sendResponse(res, 200, true, 'Cập nhật thành công', schedule);
+
+  // Vừa lưu id hợp đồng → nếu tiền cọc của lớp khác số đã in thì cập nhật luôn trên hợp đồng
+  if (schedule.contractDocId && req.body?.contractDocId && schedule.status !== 'cancelled') {
+    void syncContractDeposit(
+      schedule.customer,
+      req.user!._id as Types.ObjectId,
+      String(schedule._id),
+    );
+  }
 
   if (!prevSchedule) return;
 
@@ -586,6 +640,71 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       console.error('[Telegram] schedule update notification failed:', e);
     }
   })();
+};
+
+/** Vai trò được bấm "Cập nhật lại tiền cọc" trên mọi lớp: Superadmin, Admin, Kế toán. */
+const CONTRACT_SYNC_ROLES = [0, 1, 5];
+
+/**
+ * POST /schedules/:id/sync-contract-deposit — cập nhật lại ô Tiền cọc / Đợt 2 trên hợp đồng
+ * của lịch theo tiền cọc hiện tại của lớp. Admin / kế toán, hoặc sale phụ trách lớp
+ * (lớp chưa có người phụ trách: mọi sale) — giống quyền ghi chú lớp.
+ */
+export const syncContractDepositNow = async (req: Request, res: Response): Promise<void> => {
+  if (!isValidObjectId(req.params.id)) {
+    sendResponse(res, 404, false, 'Not found');
+    return;
+  }
+  const schedule = await Schedule.findById(req.params.id)
+    .select('customer contractDocId status')
+    .lean();
+  if (!schedule) {
+    sendResponse(res, 404, false, 'Not found');
+    return;
+  }
+  if (!schedule.contractDocId || schedule.status === 'cancelled') {
+    sendResponse(res, 400, false, 'Hợp đồng này không tự cập nhật được tiền cọc');
+    return;
+  }
+  const customer = await Customer.findById(schedule.customer).select('assignedSale').lean();
+  if (!customer) {
+    sendResponse(res, 404, false, 'Not found');
+    return;
+  }
+  const user = req.user!;
+  const roles = user.roles as number[];
+  const allowed =
+    roles.some((r) => CONTRACT_SYNC_ROLES.includes(r)) ||
+    (customer.assignedSale
+      ? String(customer.assignedSale) === String(user._id)
+      : roles.some((r) => r === 2 || r === 4));
+  if (!allowed) {
+    sendResponse(res, 403, false, 'Bạn không phụ trách lớp này');
+    return;
+  }
+
+  const result = await syncContractDeposit(
+    customer._id,
+    user._id as Types.ObjectId,
+    String(schedule._id),
+  );
+  if (result.skipped) {
+    sendResponse(res, 503, false, 'Chưa cấu hình kết nối Apps Script hợp đồng');
+    return;
+  }
+  if (result.failed.length) {
+    sendResponse(
+      res,
+      502,
+      false,
+      `Không cập nhật được tiền cọc trên hợp đồng (${result.failed.join(', ')})`,
+    );
+    return;
+  }
+  const fresh = await Schedule.findById(schedule._id)
+    .select('contractDocId contractDepositAmount contractDepositSyncedAt')
+    .lean();
+  sendResponse(res, 200, true, 'Đã cập nhật tiền cọc trên hợp đồng', fresh);
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {

@@ -106,6 +106,10 @@ export interface ScheduleDto {
   notes?: string;
   season?: string | null;
   contractUrl?: string;
+  contractDocId?: string | null;
+  contractTotal?: number | null;
+  contractDepositAmount?: number | null;
+  contractDepositSyncedAt?: string | null;
   extraServices?: ExtraServiceDto[];
   createdAt?: string;
 }

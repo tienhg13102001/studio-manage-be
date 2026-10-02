@@ -15,6 +15,7 @@ import { notifyByRoles } from '../services/telegramService';
 import { resolveCurrentSeason } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 import { CREW_FORBIDDEN_MSG, canEditCrew, hasCrew } from '../utils/permissions';
+import { syncContractDeposit } from '../services/contractService';
 
 const USER_REF_FIELDS = 'name username';
 const SCHOOL_REF_FIELDS = 'name address';
@@ -607,6 +608,9 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
     transaction,
     warnings,
   });
+
+  // Tiền cọc đổi → cập nhật ô tiền cọc trên hợp đồng đã tạo (chạy nền, không throw)
+  if (deposit) void syncContractDeposit(customer._id, user._id as Types.ObjectId);
 
   // ── Báo admin khi chốt cọc (chạy nền, không làm hỏng request) ──
   if (deposit) {

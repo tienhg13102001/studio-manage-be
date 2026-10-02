@@ -42,6 +42,14 @@ export interface ISchedule extends Document {
   notes?: string;
   season?: Types.ObjectId | null;
   contractUrl?: string;
+  /** Google Doc id của hợp đồng (để cập nhật ô tiền cọc về sau). */
+  contractDocId?: string | null;
+  /** Tổng thanh toán in trên hợp đồng (gói + dịch vụ thêm) — dùng tính Đợt 2. */
+  contractTotal?: number | null;
+  /** Tiền cọc đang in trên hợp đồng; null = để trống "………". */
+  contractDepositAmount?: number | null;
+  /** Lần cuối ô tiền cọc trên hợp đồng được điền số tiền. */
+  contractDepositSyncedAt?: Date | null;
   driveFolderUrl?: string;
   driveFolderId?: string;
   extraServices?: IExtraService[];
@@ -67,6 +75,10 @@ const scheduleSchema = new Schema<ISchedule>(
     notes: { type: String },
     season: { type: Schema.Types.ObjectId, ref: 'Season', default: null },
     contractUrl: { type: String },
+    contractDocId: { type: String, default: null },
+    contractTotal: { type: Number, default: null },
+    contractDepositAmount: { type: Number, default: null },
+    contractDepositSyncedAt: { type: Date, default: null },
     driveFolderUrl: { type: String },
     driveFolderId: { type: String },
     extraServices: { type: [extraServiceSchema], default: [] },
