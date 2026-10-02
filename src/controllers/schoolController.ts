@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import Customer from '../models/Customer';
 import School, {
   normalizeSchoolName,
   toSchoolSearchKey,
@@ -132,4 +133,30 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   }
   const updated = await School.findById(school._id).select(SCHOOL_FIELDS).lean();
   sendResponse(res, 200, true, 'Cập nhật thành công', updated);
+};
+
+export const remove = async (req: Request, res: Response): Promise<void> => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    sendResponse(res, 400, false, 'ID trường không hợp lệ');
+    return;
+  }
+  const school = await School.findById(req.params.id).select('_id').lean();
+  if (!school) {
+    sendResponse(res, 404, false, 'Not found');
+    return;
+  }
+  // Không xoá trường còn lớp tham chiếu — tránh lớp trỏ tới trường không tồn tại
+  const count = await Customer.countDocuments({ schoolId: school._id });
+  if (count > 0) {
+    sendResponse(
+      res,
+      409,
+      false,
+      `Trường đang có ${count} lớp, hãy chuyển các lớp sang trường khác trước khi xoá`,
+      { count },
+    );
+    return;
+  }
+  await School.findByIdAndDelete(school._id);
+  sendResponse(res, 200, true, 'Đã xoá trường');
 };
