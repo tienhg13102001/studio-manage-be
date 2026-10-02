@@ -246,9 +246,19 @@ export interface PaginatedResponse<T> {
   totalFemale?: number;
 }
 
+/** Global feedback stats (all feedback). Dist arrays: index 0..4 = count of 1..5 stars. */
+export interface FeedbackStats {
+  count: number;
+  crewAvg: number;
+  albumAvg: number;
+  crewDist: number[];
+  albumDist: number[];
+}
+
 export interface FeedbackListResponse extends PaginatedResponse<FeedbackResponse> {
   totalRead: number;
   totalUnread: number;
+  stats: FeedbackStats;
 }
 
 export interface ErrorResponse {
@@ -294,7 +304,6 @@ export interface DashboardStats {
   showSchedules: boolean;
   upcomingSchedules: UpcomingScheduleDto[];
 }
-
 
 // Season DTOs
 export interface SeasonDto {
