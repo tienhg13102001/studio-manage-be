@@ -1,5 +1,10 @@
 export interface FolderLogPayload {
-  scheduleId: string;
+  /** `folder`: chỉ tìm/tạo folder cho lớp (không ghi Sheet). Mặc định: folder + dòng Sheet. */
+  action?: 'folder';
+  /** Bỏ trống khi `action: 'folder'`. */
+  scheduleId?: string;
+  /** Folder đã lưu trên lớp → Apps Script dùng lại thay vì tìm/tạo theo tên. */
+  folderId?: string | null;
   season: string; // tên mùa — dùng làm folder con & tên tab Sheet
   school: string;
   className: string;
@@ -15,6 +20,10 @@ export interface FolderLogPayload {
 export interface FolderLogResult {
   folderId: string;
   folderUrl: string;
+  /** Có ở Code.gs bản mới (≥ 2): 'folder' khi gọi với `action: 'folder'`. */
+  action?: string;
+  /** Phiên bản giao thức của Code.gs; thiếu = bản cũ (không hỗ trợ folderId / action 'folder'). */
+  scriptVersion?: number;
 }
 
 /**
@@ -59,7 +68,14 @@ export async function createFolderAndLog(
       return null;
     }
 
-    let data: { ok?: boolean; folderId?: string; folderUrl?: string; error?: string };
+    let data: {
+      ok?: boolean;
+      folderId?: string;
+      folderUrl?: string;
+      action?: string;
+      scriptVersion?: number;
+      error?: string;
+    };
     try {
       data = JSON.parse(raw);
     } catch {
@@ -75,7 +91,12 @@ export async function createFolderAndLog(
     }
 
     console.log('[GoogleSheet] ✓ tạo folder thành công:', data.folderUrl);
-    return { folderId: data.folderId, folderUrl: data.folderUrl };
+    return {
+      folderId: data.folderId,
+      folderUrl: data.folderUrl,
+      action: data.action,
+      scriptVersion: data.scriptVersion,
+    };
   } catch (err) {
     console.error('[GoogleSheet] gọi webhook thất bại:', err);
     return null;
@@ -91,8 +112,9 @@ export interface DeletePayload {
 }
 
 /**
- * Gọi Apps Script để xoá folder bộ ảnh (vào thùng rác) và dòng tương ứng trong
- * Google Sheet khi xoá lịch chụp. Trả về true nếu webhook báo thành công.
+ * Gọi Apps Script để xoá dòng tương ứng trong Google Sheet khi xoá lịch chụp (và folder bộ
+ * ảnh vào thùng rác nếu có `folderId` — hiện không gửi vì folder thuộc về lớp).
+ * Trả về true nếu webhook báo thành công.
  */
 export async function deleteFolderAndRow(payload: DeletePayload): Promise<boolean> {
   const GAS_URL = process.env.GAS_WEBHOOK_URL ?? '';

@@ -4,7 +4,6 @@ import path from 'path';
 import { Types, isValidObjectId } from 'mongoose';
 import Schedule, { SCHEDULE_STATUSES } from '../models/Schedule';
 import Customer, { CUSTOMER_STATUSES, type CustomerStatus } from '../models/Customer';
-import CustomerActivity from '../models/CustomerActivity';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
 import type { ISeason } from '../models/Season';
@@ -12,12 +11,13 @@ import type { ScheduleResponse } from '../types/dto';
 import { notifyUsers } from '../services/telegramService';
 import { deleteFolderAndRow } from '../services/googleSheetService';
 import {
+  LEGACY_SCHEDULE_FIELDS,
   createScheduleWithSideEffects,
   findPreferredScheduleId,
+  stripLegacyScheduleFields,
 } from '../services/scheduleService';
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
-import { syncContractDeposit } from '../services/contractService';
 import { CREW_FORBIDDEN_MSG, canEditCrew, crewChanged, hasCrew } from '../utils/permissions';
 
 interface ScheduleQuery {
@@ -274,7 +274,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit assignedSale createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit assignedSale driveFolderUrl contract.url contract.docId createdAt';
   const [data, total, statusCounts] = await Promise.all([
     Schedule.find(filter)
       .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
@@ -336,7 +336,7 @@ export const getBusy = async (req: Request, res: Response): Promise<void> => {
 export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId createdAt';
   if (!isValidObjectId(req.params.customer)) {
     sendResponse(res, 400, false, 'customer không hợp lệ');
     return;
@@ -359,7 +359,7 @@ export const getByCustomer = async (req: Request, res: Response): Promise<void> 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId createdAt';
   const schedule = await Schedule.findById(req.params.id)
     .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
     .populate({ path: 'package', populate: { path: 'costumes' } })
@@ -392,9 +392,21 @@ const normalizeBodyStatus = (body: Record<string, unknown> | undefined): boolean
   return (SCHEDULE_STATUSES as readonly unknown[]).includes(body.status);
 };
 
+/** Client cũ còn gửi hợp đồng / folder Drive lên lịch chụp (nay thuộc về lớp). */
+export const STALE_CLIENT_MSG = 'Phiên bản cũ — vui lòng tải lại trang';
+
+const hasLegacyFields = (body: unknown) =>
+  !!body &&
+  typeof body === 'object' &&
+  LEGACY_SCHEDULE_FIELDS.some((k) => Object.prototype.hasOwnProperty.call(body, k));
+
 const INVALID_STATUS_MSG = 'Trạng thái lịch chụp không hợp lệ (chỉ active hoặc cancelled)';
 
 export const create = async (req: Request, res: Response): Promise<void> => {
+  if (hasLegacyFields(req.body)) {
+    sendResponse(res, 409, false, STALE_CLIENT_MSG);
+    return;
+  }
   if (!normalizeBodyStatus(req.body)) {
     sendResponse(res, 400, false, INVALID_STATUS_MSG);
     return;
@@ -409,56 +421,16 @@ export const create = async (req: Request, res: Response): Promise<void> => {
   sendResponse(res, 201, true, 'Tạo lịch chụp thành công', schedule);
 };
 
-const CONTRACT_DOC_ID_RE = /^[\w-]{20,}$/;
-
-/** `null` hoặc số hữu hạn ≥ 0. */
-const isAmountOrNull = (v: unknown) =>
-  v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
-
-/**
- * Kiểm tra / chuẩn hoá các field hợp đồng trong body PUT (ghi tại chỗ vào `body`).
- * Trả về thông báo lỗi nếu không hợp lệ.
- */
-const validateContractFields = (
-  body: Record<string, unknown>,
-  prevContractUrl: string | null | undefined,
-): string | null => {
-  const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
-  if (has('contractDocId')) {
-    const v = body.contractDocId;
-    if (v === null || v === '') body.contractDocId = null;
-    else if (typeof v !== 'string' || !CONTRACT_DOC_ID_RE.test(v)) {
-      return 'contractDocId không hợp lệ';
-    } else if (!(typeof body.contractUrl === 'string' && body.contractUrl) && !prevContractUrl) {
-      return 'contractDocId chỉ được lưu cùng contractUrl';
-    }
-  }
-  for (const k of ['contractTotal', 'contractDepositAmount']) {
-    if (has(k) && !isAmountOrNull(body[k])) return `${k} không hợp lệ`;
-  }
-  if (has('contractDepositSyncedAt')) {
-    const v = body.contractDepositSyncedAt;
-    if (v !== null) {
-      const d = typeof v === 'string' || typeof v === 'number' ? new Date(v) : null;
-      if (!d || Number.isNaN(d.getTime())) return 'contractDepositSyncedAt không hợp lệ';
-    }
-  }
-  return null;
-};
-
 export const update = async (req: Request, res: Response): Promise<void> => {
+  if (hasLegacyFields(req.body)) {
+    sendResponse(res, 409, false, STALE_CLIENT_MSG);
+    return;
+  }
   if (!normalizeBodyStatus(req.body)) {
     sendResponse(res, 400, false, INVALID_STATUS_MSG);
     return;
   }
   const prevSchedule = await Schedule.findById(req.params.id).lean();
-  if (req.body && typeof req.body === 'object') {
-    const contractError = validateContractFields(req.body, prevSchedule?.contractUrl);
-    if (contractError) {
-      sendResponse(res, 400, false, contractError);
-      return;
-    }
-  }
   if (prevSchedule && req.body && crewChanged(req.body, prevSchedule) && !canEditCrew(req.user)) {
     sendResponse(res, 403, false, CREW_FORBIDDEN_MSG);
     return;
@@ -480,7 +452,8 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       return;
     }
   }
-  const updateData = { ...req.body };
+  // Đã chặn field cũ ở trên; vẫn lọc lại cho chắc
+  const updateData = stripLegacyScheduleFields({ ...req.body });
   // Nếu đổi ngày chụp mà client không gửi season, tự động tính lại theo mùa.
   if (
     updateData.shootDate &&
@@ -497,45 +470,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // Có hợp đồng mới → lớp đang "Đã cọc" tự chuyển sang "Chưa chụp" (trước khi trả response
-  // để client refetch thấy ngay trạng thái mới)
-  const contractUrl = req.body?.contractUrl as string | undefined;
-  if (
-    prevSchedule &&
-    schedule.status !== 'cancelled' &&
-    contractUrl &&
-    contractUrl !== (prevSchedule.contractUrl ?? null)
-  ) {
-    try {
-      const moved = await Customer.findOneAndUpdate(
-        { _id: schedule.customer, status: 'deposited' },
-        { $set: { status: 'scheduled', statusChangedAt: new Date() } },
-      );
-      if (moved) {
-        await CustomerActivity.create({
-          customer: moved._id,
-          kind: 'system',
-          fromStatus: 'deposited',
-          toStatus: 'scheduled',
-          note: 'Đã tạo hợp đồng',
-          createdBy: req.user!._id,
-        });
-      }
-    } catch (e) {
-      console.error('[Schedule] cập nhật trạng thái lớp sau khi tạo hợp đồng thất bại:', e);
-    }
-  }
-
   sendResponse(res, 200, true, 'Cập nhật thành công', schedule);
-
-  // Vừa lưu id hợp đồng → nếu tiền cọc của lớp khác số đã in thì cập nhật luôn trên hợp đồng
-  if (schedule.contractDocId && req.body?.contractDocId && schedule.status !== 'cancelled') {
-    void syncContractDeposit(
-      schedule.customer,
-      req.user!._id as Types.ObjectId,
-      String(schedule._id),
-    );
-  }
 
   if (!prevSchedule) return;
 
@@ -620,91 +555,15 @@ export const update = async (req: Request, res: Response): Promise<void> => {
           .map(String);
         if (currentIds.length) await notifyUsers(currentIds, text);
       }
-
-      // ── 3. Thông báo tạo hợp đồng ──────────────────────────────────────
-      const newContractUrl = req.body?.contractUrl as string | undefined;
-      const prevContractUrl = prevSchedule.contractUrl ?? null;
-      if (newContractUrl && newContractUrl !== prevContractUrl) {
-        const text =
-          `📄 <b>Hợp đồng đã được tạo</b>\n` +
-          `👥 ${classSchool}\n` +
-          `📆 ${dateStr}${timeStr}${locationStr}\n` +
-          `🔗 ${newContractUrl}`;
-
-        const currentIds = [full.leadPhotographer, ...full.supportPhotographers]
-          .filter(Boolean)
-          .map(String);
-        if (currentIds.length) await notifyUsers(currentIds, text);
-      }
     } catch (e) {
       console.error('[Telegram] schedule update notification failed:', e);
     }
   })();
 };
 
-/** Vai trò được bấm "Cập nhật lại tiền cọc" trên mọi lớp: Superadmin, Admin, Kế toán. */
-const CONTRACT_SYNC_ROLES = [0, 1, 5];
-
-/**
- * POST /schedules/:id/sync-contract-deposit — cập nhật lại ô Tiền cọc / Đợt 2 trên hợp đồng
- * của lịch theo tiền cọc hiện tại của lớp. Admin / kế toán, hoặc sale phụ trách lớp
- * (lớp chưa có người phụ trách: mọi sale) — giống quyền ghi chú lớp.
- */
-export const syncContractDepositNow = async (req: Request, res: Response): Promise<void> => {
-  if (!isValidObjectId(req.params.id)) {
-    sendResponse(res, 404, false, 'Not found');
-    return;
-  }
-  const schedule = await Schedule.findById(req.params.id)
-    .select('customer contractDocId status')
-    .lean();
-  if (!schedule) {
-    sendResponse(res, 404, false, 'Not found');
-    return;
-  }
-  if (!schedule.contractDocId || schedule.status === 'cancelled') {
-    sendResponse(res, 400, false, 'Hợp đồng này không tự cập nhật được tiền cọc');
-    return;
-  }
-  const customer = await Customer.findById(schedule.customer).select('assignedSale').lean();
-  if (!customer) {
-    sendResponse(res, 404, false, 'Not found');
-    return;
-  }
-  const user = req.user!;
-  const roles = user.roles as number[];
-  const allowed =
-    roles.some((r) => CONTRACT_SYNC_ROLES.includes(r)) ||
-    (customer.assignedSale
-      ? String(customer.assignedSale) === String(user._id)
-      : roles.some((r) => r === 2 || r === 4));
-  if (!allowed) {
-    sendResponse(res, 403, false, 'Bạn không phụ trách lớp này');
-    return;
-  }
-
-  const result = await syncContractDeposit(
-    customer._id,
-    user._id as Types.ObjectId,
-    String(schedule._id),
-  );
-  if (result.skipped) {
-    sendResponse(res, 503, false, 'Chưa cấu hình kết nối Apps Script hợp đồng');
-    return;
-  }
-  if (result.failed.length) {
-    sendResponse(
-      res,
-      502,
-      false,
-      `Không cập nhật được tiền cọc trên hợp đồng (${result.failed.join(', ')})`,
-    );
-    return;
-  }
-  const fresh = await Schedule.findById(schedule._id)
-    .select('contractDocId contractDepositAmount contractDepositSyncedAt')
-    .lean();
-  sendResponse(res, 200, true, 'Đã cập nhật tiền cọc trên hợp đồng', fresh);
+/** Route cũ POST /schedules/:id/sync-contract-deposit — nay ở POST /customers/:id/contract/sync-deposit. */
+export const goneContractRoute = (_req: Request, res: Response): void => {
+  sendResponse(res, 410, false, STALE_CLIENT_MSG);
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
@@ -724,7 +583,7 @@ export const remove = async (req: Request, res: Response): Promise<void> => {
   void deleteFolderAndRow({
     scheduleId: String(target._id),
     season: (target.season as unknown as { name?: string })?.name ?? 'Chưa phân mùa',
-    folderId: target.driveFolderId,
+    // Không gửi folderId: folder ảnh thuộc về lớp, xoá lịch không được xoá folder
   }).catch((e: unknown) => console.error('[Schedule] dọn Google Drive/Sheet khi xoá thất bại:', e));
 };
 

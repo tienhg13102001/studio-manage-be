@@ -1,23 +1,7 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
+import { extraServiceSchema, type IExtraService } from './extraService';
 
-export interface IExtraService {
-  name: string;
-  quantity: number;
-  unitPrice: number;
-  amount: number;
-  note?: string;
-}
-
-const extraServiceSchema = new Schema<IExtraService>(
-  {
-    name: { type: String, required: true, trim: true },
-    quantity: { type: Number, required: true },
-    unitPrice: { type: Number, required: true },
-    amount: { type: Number, required: true },
-    note: { type: String },
-  },
-  { _id: false },
-);
+export type { IExtraService };
 
 /**
  * Lịch chụp chỉ còn cờ huỷ: `active` (đang áp dụng) hoặc `cancelled` (đã huỷ).
@@ -41,16 +25,23 @@ export interface ISchedule extends Document {
   status: ScheduleStatus;
   notes?: string;
   season?: Types.ObjectId | null;
+  /**
+   * @deprecated Hợp đồng + folder Drive đã chuyển sang lớp (`Customer.contract`,
+   * `Customer.driveFolderUrl/Id`) — utils/migrateContractsToCustomer.ts. Giữ lại field cũ (chỉ đọc,
+   * không ghi nữa) để có thể rollback.
+   */
   contractUrl?: string;
-  /** Google Doc id của hợp đồng (để cập nhật ô tiền cọc về sau). */
+  /** @deprecated xem `contractUrl` */
   contractDocId?: string | null;
-  /** Tổng thanh toán in trên hợp đồng (gói + dịch vụ thêm) — dùng tính Đợt 2. */
+  /** @deprecated xem `contractUrl` */
   contractTotal?: number | null;
-  /** Tiền cọc đang in trên hợp đồng; null = để trống "………". */
+  /** @deprecated xem `contractUrl` */
   contractDepositAmount?: number | null;
-  /** Lần cuối ô tiền cọc trên hợp đồng được điền số tiền. */
+  /** @deprecated xem `contractUrl` */
   contractDepositSyncedAt?: Date | null;
+  /** @deprecated xem `contractUrl` */
   driveFolderUrl?: string;
+  /** @deprecated xem `contractUrl` */
   driveFolderId?: string;
   extraServices?: IExtraService[];
 }
@@ -74,11 +65,12 @@ const scheduleSchema = new Schema<ISchedule>(
     },
     notes: { type: String },
     season: { type: Schema.Types.ObjectId, ref: 'Season', default: null },
+    // Legacy (chỉ đọc) — hợp đồng/folder Drive giờ nằm trên Customer
     contractUrl: { type: String },
-    contractDocId: { type: String, default: null },
-    contractTotal: { type: Number, default: null },
-    contractDepositAmount: { type: Number, default: null },
-    contractDepositSyncedAt: { type: Date, default: null },
+    contractDocId: { type: String },
+    contractTotal: { type: Number },
+    contractDepositAmount: { type: Number },
+    contractDepositSyncedAt: { type: Date },
     driveFolderUrl: { type: String },
     driveFolderId: { type: String },
     extraServices: { type: [extraServiceSchema], default: [] },

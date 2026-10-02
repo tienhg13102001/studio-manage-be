@@ -39,8 +39,7 @@ const EDITABLE_FIELDS = [
 const DEPOSIT_CATEGORY_NAME = 'Thu tiền cọc hợp đồng'.normalize('NFC');
 const DEPOSIT_CATEGORY_REGEX = new RegExp(`cọc|${'cọc'.normalize('NFD')}`, 'i');
 
-const NO_SCHEDULE_WARNING =
-  'Chưa có lịch chụp nên chưa tạo folder Drive — tạo lịch chụp cho lớp này';
+const NO_SCHEDULE_WARNING = 'Chưa có lịch chụp — tạo lịch chụp cho lớp này';
 const CONFLICT_MESSAGE = 'Trạng thái lớp vừa thay đổi, tải lại trang';
 
 // Các bước trước khi cọc: được "Không chốt" và sale được nhận lớp chưa có người phụ trách
@@ -513,12 +512,12 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
   let transaction: ITransaction | null = null;
 
   if (deposit) {
-    let hasContract = false;
+    // Lớp đã có hợp đồng từ trước → tự chuyển luôn sang "Chưa chụp" (xem dưới)
+    const hasContract = !!customer.contract?.url;
     try {
       const active = await Schedule.find({ customer: customer._id, status: { $ne: 'cancelled' } })
-        .select('contractUrl')
+        .select('_id')
         .lean();
-      hasContract = active.some((s) => s.contractUrl);
       if (!active.length && body.schedule) {
         const s = body.schedule;
         schedule = await createScheduleWithSideEffects({
@@ -572,7 +571,7 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
       warnings.push(`Không tạo được giao dịch tiền cọc: ${errMsg(e)}`);
     }
 
-    // Lịch chụp đã có hợp đồng từ trước → hook contractUrl sẽ không chạy nữa, tự chuyển luôn
+    // Lớp đã có hợp đồng từ trước → lưu hợp đồng sẽ không chạy nữa, tự chuyển luôn
     if (hasContract) {
       try {
         const moved = await Customer.updateOne(

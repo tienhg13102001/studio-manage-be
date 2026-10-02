@@ -15,6 +15,7 @@
     "migrate:schedule-season": "ts-node src/utils/migrateScheduleSeason.ts",
     "migrate:customer-status": "ts-node src/utils/migrateCustomerStatus.ts",
     "migrate:schools": "ts-node src/utils/migrateSchools.ts",
+    "migrate:contracts": "ts-node src/utils/migrateContractsToCustomer.ts",
     "copy:prod-to-local": "ts-node src/utils/copyProdToLocal.ts",
     "format": "prettier --write \"src/**/*.{ts,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,json}\""

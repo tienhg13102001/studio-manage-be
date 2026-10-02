@@ -10,8 +10,15 @@
  *      theo scheduleId — đã có thì cập nhật dòng đó, chưa có thì thêm dòng mới.
  *   4. Trả JSON { ok, folderId, folderUrl }.
  *
- * Khi XOÁ lịch chụp (body.action === 'delete'): chuyển folder bộ ảnh vào thùng
- * rác (theo folderId) và xoá dòng tương ứng trong Sheet (theo scheduleId).
+ * Folder ảnh thuộc về LỚP: nếu body.folderId (folder đã lưu trên lớp) còn dùng được
+ * thì dùng lại folder đó thay vì tìm/tạo theo tên.
+ *
+ * body.action === 'folder': chỉ tìm/tạo folder ảnh cho lớp (chưa có lịch chụp) — không
+ * ghi Sheet. Trả { ok, folderId, folderUrl }.
+ *
+ * Khi XOÁ lịch chụp (body.action === 'delete'): xoá dòng tương ứng trong Sheet (theo
+ * scheduleId); chỉ chuyển folder vào thùng rác nếu body.folderId được gửi (backend
+ * hiện KHÔNG gửi vì folder thuộc về lớp).
  *
  * ─── Cấu hình (Project Settings → Script Properties) ───
  *   SECRET          : chuỗi bí mật, trùng GAS_WEBHOOK_SECRET bên backend
@@ -25,6 +32,10 @@
  *   Copy "Web app URL" → dán vào GAS_WEBHOOK_URL bên backend .env
  *   (Mỗi lần sửa code phải tạo "New version" khi deploy thì mới có hiệu lực.)
  */
+
+// Backend chỉ tin `folderId` trả về (thay folder đã lưu trên lớp) / action 'folder' khi script
+// đủ mới — tăng số này khi đổi giao thức.
+var SCRIPT_VERSION = 2;
 
 var HEADERS = [
   'Ngày tạo',
@@ -63,13 +74,26 @@ function doPost(e) {
 
     var seasonName = body.season || 'Chưa phân mùa';
 
-    // 1. Tìm/tạo folder mùa, rồi tìm-hoặc-tạo folder bộ ảnh (không tạo trùng)
-    var root = DriveApp.getFolderById(rootId);
-    var seasonFolder = _getOrCreateChildFolder(root, seasonName);
-    var folderName = _buildFolderName(body);
-    var folder = _getOrCreateChildFolder(seasonFolder, folderName);
+    // 1. Folder của lớp (nếu có) → dùng lại; không thì tìm/tạo folder mùa, rồi
+    //    tìm-hoặc-tạo folder bộ ảnh (không tạo trùng)
+    var folder = _getExistingFolder(body.folderId);
+    if (!folder) {
+      var root = DriveApp.getFolderById(rootId);
+      var seasonFolder = _getOrCreateChildFolder(root, seasonName);
+      folder = _getOrCreateChildFolder(seasonFolder, _buildFolderName(body));
+    }
     var folderId = folder.getId();
     var folderUrl = folder.getUrl();
+
+    if (body.action === 'folder') {
+      return _json({
+        ok: true,
+        action: 'folder',
+        scriptVersion: SCRIPT_VERSION,
+        folderId: folderId,
+        folderUrl: folderUrl,
+      });
+    }
 
     // 2. Tìm/tạo tab theo tên mùa
     var ss = SpreadsheetApp.openById(sheetId);
@@ -108,9 +132,25 @@ function doPost(e) {
       sheet.appendRow(rowValues);
     }
 
-    return _json({ ok: true, folderId: folderId, folderUrl: folderUrl });
+    return _json({
+      ok: true,
+      scriptVersion: SCRIPT_VERSION,
+      folderId: folderId,
+      folderUrl: folderUrl,
+    });
   } catch (err) {
     return _json({ ok: false, error: String(err) });
+  }
+}
+
+// Folder theo id còn tồn tại và chưa bị xoá → trả về; không thì null.
+function _getExistingFolder(folderId) {
+  if (!folderId) return null;
+  try {
+    var f = DriveApp.getFolderById(folderId);
+    return f.isTrashed() ? null : f;
+  } catch (err) {
+    return null;
   }
 }
 

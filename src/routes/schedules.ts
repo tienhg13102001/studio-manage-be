@@ -11,7 +11,8 @@ router.route('/').get(asyncHandler(c.getAll)).post(asyncHandler(c.create));
 router.get('/busy', asyncHandler(c.getBusy));
 router.get('/customer/:customer', asyncHandler(c.getByCustomer));
 router.get('/:id/contract', asyncHandler(c.exportContract));
-router.post('/:id/sync-contract-deposit', asyncHandler(c.syncContractDepositNow));
+// Route cũ (client chưa tải lại) → 410
+router.post('/:id/sync-contract-deposit', c.goneContractRoute);
 router
   .route('/:id')
   .get(asyncHandler(c.getOne))

@@ -49,7 +49,34 @@ export interface CustomerDto {
   status?: CustomerStatus;
   /** Ngày dự kiến chụp (ISO) */
   expectedShootDate?: string | null;
+  /** Hợp đồng của lớp — null khi chưa có. */
+  contract?: CustomerContractDto | null;
+  /** Folder Drive ảnh của lớp. */
+  driveFolderUrl?: string | null;
+  driveFolderId?: string | null;
   createdAt?: string;
+}
+
+export interface CustomerContractDto {
+  url: string;
+  /** null = hợp đồng cũ, không tự cập nhật ô tiền cọc */
+  docId?: string | null;
+  total?: number | null;
+  /** Package id */
+  package?: string | null;
+  /** Giá / thành viên in trên hợp đồng */
+  pricePerMember?: number | null;
+  shootDate?: string | null;
+  location?: string;
+  extraServices?: ExtraServiceDto[];
+  crewCount?: number | null;
+  crewCountSystem?: number | null;
+  /** Tiền cọc đang in; null = để trống "………" */
+  depositAmount?: number | null;
+  depositSyncedAt?: string | null;
+  createdAt?: string | null;
+  createdBy?: string | null;
+  migratedFromSchedule?: string | null;
 }
 
 export interface CostumeDto {
@@ -105,11 +132,20 @@ export interface ScheduleDto {
   status: ScheduleStatus;
   notes?: string;
   season?: string | null;
+  /** @deprecated legacy — hợp đồng giờ ở `CustomerDto.contract` */
   contractUrl?: string;
+  /** @deprecated legacy */
   contractDocId?: string | null;
+  /** @deprecated legacy */
   contractTotal?: number | null;
+  /** @deprecated legacy */
   contractDepositAmount?: number | null;
+  /** @deprecated legacy */
   contractDepositSyncedAt?: string | null;
+  /** @deprecated legacy — folder giờ ở `CustomerDto.driveFolderUrl` */
+  driveFolderUrl?: string;
+  /** @deprecated legacy */
+  driveFolderId?: string;
   extraServices?: ExtraServiceDto[];
   createdAt?: string;
 }

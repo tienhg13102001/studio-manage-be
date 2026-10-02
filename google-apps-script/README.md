@@ -10,8 +10,13 @@ Cấu trúc theo **mùa (season)**:
 - Sheet: mỗi mùa là 1 tab riêng (tên tab = tên mùa), tự tạo nếu chưa có. Mỗi lịch
   ghi 1 dòng định danh theo `scheduleId`: **đã có thì cập nhật dòng đó**, chưa có
   thì thêm dòng mới (không nhân bản).
-- Xoá lịch (`action: 'delete'`): chuyển folder bộ ảnh vào **thùng rác** Drive (theo
-  `folderId`) và **xoá dòng** tương ứng trong Sheet (theo `scheduleId`).
+- Folder ảnh thuộc về **lớp** (`Customer.driveFolderUrl/Id`): backend gửi `folderId` đã lưu
+  trên lớp → script dùng lại folder đó (không tạo folder mới cho lịch chụp thứ 2).
+- `action: 'folder'`: chỉ tìm/tạo folder cho lớp chưa có lịch chụp (nút "Tạo folder" ở chi
+  tiết lớp) — không ghi Sheet. Response có `action: 'folder'` + `scriptVersion`; backend từ chối
+  ("Script folder chưa cập nhật") nếu thiếu → **deploy Code.gs bản mới TRƯỚC backend**.
+- Xoá lịch (`action: 'delete'`): **xoá dòng** tương ứng trong Sheet (theo `scheduleId`). Folder
+  của lớp không bị xoá (backend không gửi `folderId`).
 
 ## Thiết lập
 
@@ -51,4 +56,4 @@ Mỗi mùa là 1 tab riêng; header tự tạo ở dòng đầu của tab khi ta
 
 Backend bỏ qua tích hợp này nếu `GAS_WEBHOOK_URL` rỗng (không lỗi). Sau khi cấu
 hình, tạo 1 lịch chụp và kiểm tra: folder mới xuất hiện trong Drive, 1 dòng mới
-trong Sheet, và field `driveFolderUrl` của lịch được cập nhật.
+trong Sheet, và field `driveFolderUrl` của lớp được cập nhật (nếu lớp chưa có folder).

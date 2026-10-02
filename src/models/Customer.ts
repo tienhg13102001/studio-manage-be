@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
+import { extraServiceSchema, type IExtraService } from './extraService';
 
 // Quy trình chăm sóc lớp — thứ tự các bước chính; `lost` (Không chốt) là nhánh phụ
 export const CUSTOMER_STATUS_ORDER = [
@@ -28,6 +29,53 @@ export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
   lost: 'Không chốt',
 };
 
+/** Hợp đồng của lớp (tạo qua Apps Script Code_create_HD.gs, lưu bằng PUT /customers/:id/contract). */
+export interface ICustomerContract {
+  /** Link Google Doc */
+  url: string;
+  /** Google Doc id — null với hợp đồng cũ (không cập nhật được ô tiền cọc). */
+  docId?: string | null;
+  /** Tổng thanh toán in trên hợp đồng (gói + dịch vụ thêm) — dùng tính Đợt 2. */
+  total?: number | null;
+  package?: Types.ObjectId | null;
+  /** Giá / thành viên in trên hợp đồng (mặc định theo gói, có thể chỉnh). */
+  pricePerMember?: number | null;
+  shootDate?: Date | null;
+  location?: string;
+  extraServices?: IExtraService[];
+  crewCount?: number | null;
+  crewCountSystem?: number | null;
+  /** Tiền cọc đang in trên hợp đồng; null = để trống "………". */
+  depositAmount?: number | null;
+  /** Lần cuối ô tiền cọc được điền số tiền. */
+  depositSyncedAt?: Date | null;
+  createdAt?: Date | null;
+  createdBy?: Types.ObjectId | null;
+  /** Lịch chụp nguồn khi được chuyển từ dữ liệu cũ (migration). */
+  migratedFromSchedule?: Types.ObjectId | null;
+}
+
+const contractSchema = new Schema<ICustomerContract>(
+  {
+    url: { type: String, required: true, trim: true },
+    docId: { type: String, default: null },
+    total: { type: Number, default: null },
+    package: { type: Schema.Types.ObjectId, ref: 'Package', default: null },
+    pricePerMember: { type: Number, default: null },
+    shootDate: { type: Date, default: null },
+    location: { type: String, trim: true },
+    extraServices: { type: [extraServiceSchema], default: [] },
+    crewCount: { type: Number, default: null },
+    crewCountSystem: { type: Number, default: null },
+    depositAmount: { type: Number, default: null },
+    depositSyncedAt: { type: Date, default: null },
+    createdAt: { type: Date, default: null },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    migratedFromSchedule: { type: Schema.Types.ObjectId, ref: 'Schedule', default: null },
+  },
+  { _id: false },
+);
+
 export interface ICustomer extends Document {
   className: string;
   schoolId?: Types.ObjectId | null;
@@ -50,6 +98,11 @@ export interface ICustomer extends Document {
   /** Ngày dự kiến chụp — sale nhập khi tạo/sửa lớp */
   expectedShootDate?: Date | null;
   deposit?: { amount: number; date: Date; transactionId?: Types.ObjectId };
+  /** Hợp đồng của lớp — null khi chưa có. */
+  contract?: ICustomerContract | null;
+  /** Folder Drive ảnh của lớp (tạo qua Apps Script Code.gs). */
+  driveFolderUrl?: string | null;
+  driveFolderId?: string | null;
 }
 
 const customerSchema = new Schema<ICustomer>(
@@ -85,6 +138,9 @@ const customerSchema = new Schema<ICustomer>(
       ),
       default: undefined,
     },
+    contract: { type: contractSchema, default: null },
+    driveFolderUrl: { type: String, default: null },
+    driveFolderId: { type: String, default: null },
   },
   { timestamps: true },
 );

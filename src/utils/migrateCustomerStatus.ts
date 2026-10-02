@@ -22,8 +22,10 @@ const migrate = async (): Promise<void> => {
   console.log(APPLY ? 'Chế độ: --apply (ghi DB)' : 'Chế độ: dry-run (không ghi DB)');
 
   const customers = await Customer.find({ status: null })
-    .select('_id assignedSale')
-    .lean<{ _id: Types.ObjectId; assignedSale?: Types.ObjectId | null }[]>();
+    .select('_id assignedSale contract.url')
+    .lean<
+      { _id: Types.ObjectId; assignedSale?: Types.ObjectId | null; contract?: { url?: string } }[]
+    >();
   console.log(`\nTìm thấy ${customers.length} lớp chưa có trạng thái`);
 
   const counts: Partial<Record<CustomerStatus, number>> = {};
@@ -40,7 +42,8 @@ const migrate = async (): Promise<void> => {
     let status: CustomerStatus = 'new';
     // Script lịch sử: chạy trước khi lịch chụp bỏ trạng thái `completed` (nay chỉ còn active/cancelled)
     if (schedules.some((s) => (s.status as string) === 'completed')) status = 'shot';
-    else if (schedules.some((s) => s.contractUrl)) status = 'scheduled';
+    // Hợp đồng nay nằm trên lớp (`contract.url`); `contractUrl` trên lịch là dữ liệu cũ
+    else if (c.contract?.url || schedules.some((s) => s.contractUrl)) status = 'scheduled';
     else if (schedules.length) status = 'deposited';
     counts[status] = (counts[status] ?? 0) + 1;
 
