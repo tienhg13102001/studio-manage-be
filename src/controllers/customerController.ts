@@ -31,6 +31,7 @@ const EDITABLE_FIELDS = [
   'notes',
   'season',
   'source',
+  'expectedShootDate',
 ];
 
 const DEPOSIT_CATEGORY_NAME = 'Thu tiền cọc hợp đồng'.normalize('NFC');
@@ -72,6 +73,13 @@ const pickEditable = (req: Request): Record<string, unknown> | string => {
     const v = data.schoolId;
     if (v === null || v === '') data.schoolId = null;
     else if (typeof v !== 'string' || !mongoose.isValidObjectId(v)) return 'schoolId không hợp lệ';
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'expectedShootDate')) {
+    const v = data.expectedShootDate;
+    if (v === null || v === '') data.expectedShootDate = null;
+    else if (typeof v !== 'string' || Number.isNaN(new Date(v).getTime()))
+      return 'Ngày dự kiến chụp không hợp lệ';
+    else data.expectedShootDate = new Date(v);
   }
   if (isAdmin(req) && Object.prototype.hasOwnProperty.call(body, 'assignedSale')) {
     const v = body.assignedSale;

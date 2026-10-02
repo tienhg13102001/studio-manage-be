@@ -47,6 +47,8 @@ export interface CustomerDto {
   notes?: string;
   /** Trạng thái quy trình của lớp — cũng là trạng thái hiển thị của lịch chụp. */
   status?: CustomerStatus;
+  /** Ngày dự kiến chụp (ISO) */
+  expectedShootDate?: string | null;
   createdAt?: string;
 }
 

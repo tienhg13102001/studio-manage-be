@@ -47,6 +47,8 @@ export interface ICustomer extends Document {
   source?: string;
   lostReason?: string;
   statusChangedAt?: Date;
+  /** Ngày dự kiến chụp — sale nhập khi tạo/sửa lớp */
+  expectedShootDate?: Date | null;
   deposit?: { amount: number; date: Date; transactionId?: Types.ObjectId };
 }
 
@@ -70,6 +72,7 @@ const customerSchema = new Schema<ICustomer>(
     source: { type: String, trim: true },
     lostReason: { type: String, trim: true },
     statusChangedAt: { type: Date },
+    expectedShootDate: { type: Date },
     deposit: {
       type: new Schema(
         {
