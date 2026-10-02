@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import path from 'path';
-import { isValidObjectId } from 'mongoose';
+import { Types, isValidObjectId } from 'mongoose';
 import Schedule, { SCHEDULE_STATUSES } from '../models/Schedule';
 import Customer, { CUSTOMER_STATUSES, type CustomerStatus } from '../models/Customer';
 import CustomerActivity from '../models/CustomerActivity';
@@ -17,6 +17,7 @@ import {
 } from '../services/scheduleService';
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
+import { CREW_FORBIDDEN_MSG, canEditCrew, crewChanged, hasCrew } from '../utils/permissions';
 
 interface ScheduleQuery {
   customer?: string;
@@ -32,6 +33,8 @@ interface ScheduleQuery {
   page?: string;
   limit?: string;
   season?: string;
+  /** Lịch có thợ này trong ekip (thợ chính hoặc thợ phụ). */
+  photographer?: string;
 }
 
 const isCustomerStatus = (v: string): v is (typeof CUSTOMER_STATUSES)[number] =>
@@ -66,12 +69,18 @@ const validateQuery = (q: Record<string, unknown>): string | null => {
   if (q.customer !== undefined && q.customer !== '' && !isValidObjectId(q.customer)) {
     return 'customer không hợp lệ';
   }
+  if (q.photographer !== undefined && q.photographer !== '' && !isValidObjectId(q.photographer)) {
+    return 'photographer không hợp lệ';
+  }
   return null;
 };
 
+/** Cast to ObjectId so the filter also works in aggregation `$match` (no auto-casting there). */
+const toId = (v: string) => (isValidObjectId(v) ? new Types.ObjectId(v) : v);
+
 const buildFilter = async (q: ScheduleQuery) => {
   const filter: Record<string, unknown> = {};
-  if (q.customer) filter.customer = q.customer;
+  if (q.customer) filter.customer = toId(q.customer);
   if (q.status === 'cancelled') {
     filter.status = 'cancelled';
   } else {
@@ -96,7 +105,105 @@ const buildFilter = async (q: ScheduleQuery) => {
     if (q.dateTo) dateRange.$lte = new Date(q.dateTo);
     filter.shootDate = dateRange;
   }
+  if (q.photographer) {
+    const id = toId(q.photographer);
+    filter.$or = [{ leadPhotographer: id }, { supportPhotographers: id }];
+  }
   return filter;
+};
+
+/** Ngày chụp được so theo lịch Việt Nam (UTC+7), không phụ thuộc giờ lưu trong `shootDate`. */
+const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const vnDayKey = (d: Date | string) =>
+  new Date(new Date(d).getTime() + VN_OFFSET_MS).toISOString().slice(0, 10);
+/** Khoảng [00:00, 24:00) giờ Việt Nam của ngày `YYYY-MM-DD`. */
+const vnDayRange = (key: string) => {
+  const start = new Date(Date.parse(`${key}T00:00:00.000Z`) - VN_OFFSET_MS);
+  return { $gte: start, $lt: new Date(start.getTime() + DAY_MS) };
+};
+
+interface CrewScheduleRow {
+  _id: unknown;
+  shootDate: Date;
+  startTime?: string;
+  endTime?: string;
+  customer?: { className?: string } | null;
+  leadPhotographer?: { _id: unknown; name?: string; username?: string } | null;
+  supportPhotographers?: { _id: unknown; name?: string; username?: string }[];
+}
+
+/** Lịch đang áp dụng (chưa huỷ) trong các ngày `days` có thợ thuộc `crewIds`. */
+const findCrewSchedules = (days: string[], crewIds?: string[]) =>
+  Schedule.find({
+    status: { $ne: 'cancelled' },
+    $and: [
+      { $or: days.map((d) => ({ shootDate: vnDayRange(d) })) },
+      ...(crewIds
+        ? [
+            {
+              $or: [
+                { leadPhotographer: { $in: crewIds } },
+                { supportPhotographers: { $in: crewIds } },
+              ],
+            },
+          ]
+        : []),
+    ],
+  })
+    .select('customer shootDate startTime endTime leadPhotographer supportPhotographers')
+    .populate('customer', 'className')
+    .populate('leadPhotographer', '_id name username')
+    .populate('supportPhotographers', '_id name username')
+    .lean<CrewScheduleRow[]>();
+
+const crewOf = (s: CrewScheduleRow) =>
+  [s.leadPhotographer, ...(s.supportPhotographers ?? [])].filter(
+    (u): u is NonNullable<CrewScheduleRow['leadPhotographer']> => Boolean(u),
+  );
+
+/**
+ * Gắn `conflicts` cho từng lịch đang áp dụng: thợ trong ekip đồng thời có lịch khác (chưa huỷ)
+ * cùng ngày chụp.
+ */
+const attachConflicts = async (items: ScheduleResponse[]) => {
+  const active = items.filter((s) => s.status !== 'cancelled');
+  const crewIds = [
+    ...new Set(
+      active.flatMap((s) =>
+        [s.leadPhotographer, ...(s.supportPhotographers ?? [])]
+          .filter(Boolean)
+          .map((u) => String(u!._id)),
+      ),
+    ),
+  ];
+  const days = [...new Set(active.map((s) => vnDayKey(s.shootDate)))];
+  const others = crewIds.length && days.length ? await findCrewSchedules(days, crewIds) : [];
+  return items.map((s) => {
+    if (s.status === 'cancelled') return { ...s, conflicts: [] };
+    const day = vnDayKey(s.shootDate);
+    const mine = new Set(
+      [s.leadPhotographer, ...(s.supportPhotographers ?? [])]
+        .filter(Boolean)
+        .map((u) => String(u!._id)),
+    );
+    const conflicts = others
+      .filter((o) => String(o._id) !== String(s._id) && vnDayKey(o.shootDate) === day)
+      .flatMap((o) =>
+        crewOf(o)
+          .filter((u) => mine.has(String(u._id)))
+          .map((u) => ({
+            user: { _id: String(u._id), name: u.name ?? u.username ?? '' },
+            schedule: {
+              _id: String(o._id),
+              className: o.customer?.className ?? '',
+              startTime: o.startTime,
+              endTime: o.endTime,
+            },
+          })),
+      );
+    return { ...s, conflicts };
+  });
 };
 
 const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
@@ -105,6 +212,50 @@ const schoolName = (customer?: { schoolId?: unknown } | null): string =>
   (customer?.schoolId as { name?: string } | null | undefined)?.name ?? '';
 
 const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
+
+type StatusFacet = 'deposited' | 'not_shot' | 'shot' | 'cancelled';
+
+/**
+ * Số lịch theo trạng thái chụp (kể cả đã huỷ) với các bộ lọc hiện tại, BỎ QUA bộ lọc trạng thái —
+ * dùng cho chip đếm trên trang Lịch chụp.
+ */
+const countByShootStatus = async (match: Record<string, unknown>) => {
+  const rows = await Schedule.aggregate<{ _id: StatusFacet; n: number }>([
+    { $match: match },
+    {
+      $lookup: {
+        from: Customer.collection.name,
+        localField: 'customer',
+        foreignField: '_id',
+        as: 'c',
+      },
+    },
+    { $project: { status: 1, cs: { $arrayElemAt: ['$c.status', 0] } } },
+    {
+      $group: {
+        _id: {
+          $cond: [
+            { $eq: ['$status', 'cancelled'] },
+            'cancelled',
+            {
+              $switch: {
+                branches: [
+                  { case: { $eq: ['$cs', 'deposited'] }, then: 'deposited' },
+                  { case: { $in: ['$cs', SHOT_CUSTOMER_STATUSES] }, then: 'shot' },
+                ],
+                default: 'not_shot',
+              },
+            },
+          ],
+        },
+        n: { $sum: 1 },
+      },
+    },
+  ]);
+  const counts: Record<StatusFacet, number> = { deposited: 0, not_shot: 0, shot: 0, cancelled: 0 };
+  for (const r of rows) counts[r._id] = r.n;
+  return counts;
+};
 
 export const getAll = async (req: Request, res: Response): Promise<void> => {
   const invalid = validateQuery(req.query);
@@ -115,13 +266,15 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const { page = '1', limit = '20', season, ...rest } = req.query as ScheduleQuery;
   const filter = await buildFilter(rest);
   if (season) {
-    filter.season = season;
+    filter.season = toId(season);
   }
+  const facetFilter = await buildFilter({ ...rest, status: undefined, includeCancelled: 'true' });
+  if (season) facetFilter.season = toId(season);
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status createdAt';
-  const [data, total] = await Promise.all([
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit assignedSale createdAt';
+  const [data, total, statusCounts] = await Promise.all([
     Schedule.find(filter)
       .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
       .populate({ path: 'package', populate: { path: 'costumes' } })
@@ -134,8 +287,49 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
       .limit(Number(limit))
       .lean<ScheduleResponse[]>(),
     Schedule.countDocuments(filter),
+    countByShootStatus(facetFilter),
   ]);
-  sendResponse(res, 200, true, 'OK', data, { total, page: Number(page), limit: Number(limit) });
+  const withConflicts = await attachConflicts(data);
+  sendResponse(res, 200, true, 'OK', withConflicts, {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    statusCounts,
+  });
+};
+
+/**
+ * GET /schedules/busy?date=YYYY-MM-DD&exclude=<scheduleId> — các lịch đang áp dụng trong ngày
+ * (theo giờ Việt Nam) kèm ekip, dùng để hiện thợ bận/rảnh khi phân công ekip.
+ */
+export const getBusy = async (req: Request, res: Response): Promise<void> => {
+  const { date, exclude } = req.query as { date?: string; exclude?: string };
+  const parsed = typeof date === 'string' ? Date.parse(`${date}T00:00:00.000Z`) : NaN;
+  if (
+    typeof date !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+    Number.isNaN(parsed) ||
+    new Date(parsed).toISOString().slice(0, 10) !== date
+  ) {
+    sendResponse(res, 400, false, 'date không hợp lệ (YYYY-MM-DD)');
+    return;
+  }
+  if (exclude !== undefined && exclude !== '' && !isValidObjectId(exclude)) {
+    sendResponse(res, 400, false, 'exclude không hợp lệ');
+    return;
+  }
+  const rows = await findCrewSchedules([date]);
+  const data = rows
+    .filter((s) => !exclude || String(s._id) !== exclude)
+    .map((s) => ({
+      _id: String(s._id),
+      className: s.customer?.className ?? '',
+      startTime: s.startTime,
+      endTime: s.endTime,
+      leadPhotographer: s.leadPhotographer ? String(s.leadPhotographer._id) : null,
+      supportPhotographers: (s.supportPhotographers ?? []).map((u) => String(u._id)),
+    }));
+  sendResponse(res, 200, true, 'OK', data);
 };
 
 export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
@@ -206,6 +400,10 @@ export const create = async (req: Request, res: Response): Promise<void> => {
   }
   // Lịch mới luôn ở trạng thái `active` — không tạo lịch đã huỷ (tránh tạo folder/Telegram thừa)
   const { status: _status, ...body } = req.body as Record<string, unknown>;
+  if (hasCrew(body) && !canEditCrew(req.user)) {
+    sendResponse(res, 403, false, CREW_FORBIDDEN_MSG);
+    return;
+  }
   const schedule = await createScheduleWithSideEffects(body);
   sendResponse(res, 201, true, 'Tạo lịch chụp thành công', schedule);
 };
@@ -216,6 +414,10 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     return;
   }
   const prevSchedule = await Schedule.findById(req.params.id).lean();
+  if (prevSchedule && req.body && crewChanged(req.body, prevSchedule) && !canEditCrew(req.user)) {
+    sendResponse(res, 403, false, CREW_FORBIDDEN_MSG);
+    return;
+  }
   // Khôi phục lịch đã huỷ: mỗi lớp chỉ được có một lịch đang áp dụng
   if (prevSchedule?.status === 'cancelled' && req.body?.status === 'active') {
     const otherActive = await Schedule.exists({

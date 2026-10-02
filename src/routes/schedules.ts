@@ -1,14 +1,20 @@
 import { Router } from 'express';
 import { protect } from '../middleware/auth';
+import { asyncHandler } from '../utils/asyncHandler';
 import * as c from '../controllers/scheduleController';
 
 const router = Router();
 
 router.use(protect);
 
-router.route('/').get(c.getAll).post(c.create);
-router.get('/customer/:customer', c.getByCustomer);
-router.get('/:id/contract', c.exportContract);
-router.route('/:id').get(c.getOne).put(c.update).delete(c.remove);
+router.route('/').get(asyncHandler(c.getAll)).post(asyncHandler(c.create));
+router.get('/busy', asyncHandler(c.getBusy));
+router.get('/customer/:customer', asyncHandler(c.getByCustomer));
+router.get('/:id/contract', asyncHandler(c.exportContract));
+router
+  .route('/:id')
+  .get(asyncHandler(c.getOne))
+  .put(asyncHandler(c.update))
+  .delete(asyncHandler(c.remove));
 
 export default router;

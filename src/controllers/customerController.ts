@@ -14,6 +14,7 @@ import { createScheduleWithSideEffects } from '../services/scheduleService';
 import { notifyByRoles } from '../services/telegramService';
 import { resolveCurrentSeason } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
+import { CREW_FORBIDDEN_MSG, canEditCrew, hasCrew } from '../utils/permissions';
 
 const USER_REF_FIELDS = 'name username';
 const SCHOOL_REF_FIELDS = 'name address';
@@ -464,6 +465,10 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
     deposit = { amount, date };
     if (body.schedule && !body.schedule.shootDate) {
       sendResponse(res, 400, false, 'Cần ngày chụp để tạo lịch chụp');
+      return;
+    }
+    if (body.schedule && hasCrew(body.schedule) && !canEditCrew(req.user)) {
+      sendResponse(res, 403, false, CREW_FORBIDDEN_MSG);
       return;
     }
   }
