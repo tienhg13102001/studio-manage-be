@@ -2,15 +2,23 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Transaction from '../models/Transaction';
 import Season from '../models/Season';
-import type {
-  TransactionResponse,
-  TransactionSummaryRow,
-} from '../types/dto';
+import type { TransactionResponse, TransactionSummaryRow } from '../types/dto';
 import { notifyByRoles } from '../services/telegramService';
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1 || r === 5);
+/** Chỉ Kế toán (5) được đánh dấu / bỏ đánh dấu "KT đã hoàn tiền" (giống UI). */
+const canRefund = (roles: number[]): boolean => roles.includes(5);
+
+/** Người không có quyền xem tất cả chỉ được đọc / sửa / xoá giao dịch của chính mình. */
+const ownScope = (req: Request): Record<string, unknown> =>
+  isPrivileged(req.user!.roles) ? {} : { createdBy: req.user!._id };
+
+/** Bỏ các field hoàn tiền khỏi body nếu người dùng không phải Kế toán. */
+const stripRefundFields = (req: Request, body: Record<string, unknown>) => {
+  if (!canRefund(req.user!.roles)) delete body.accountantRefunded;
+};
 
 interface TransactionQuery {
   customer?: string;
@@ -22,19 +30,84 @@ interface TransactionQuery {
   page?: string;
   limit?: string;
   season?: string;
+  /** Tìm theo mô tả (không phân biệt hoa thường). */
+  search?: string;
+  /** Trạng thái kế toán hoàn tiền của khoản chi: `done` | `pending`. */
+  refund?: string;
+  sort?: string;
 }
 
+const TYPES = ['income', 'expense'];
+const REFUNDS = ['done', 'pending'];
+const SORTS = ['date_asc', 'date_desc'];
+const MAX_LIMIT = 500;
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const isDateStr = (v: string) => !Number.isNaN(new Date(v).getTime());
+const isPositiveInt = (v: string) => /^\d+$/.test(v) && Number(v) > 0;
+
+/** Trả về thông báo lỗi nếu query không hợp lệ, ngược lại `null`. */
+const validateQuery = (q: Record<string, unknown>): string | null => {
+  const str = (k: string) => (typeof q[k] === 'string' ? (q[k] as string) : undefined);
+  for (const k of [
+    'customer',
+    'type',
+    'categoryId',
+    'createdBy',
+    'dateFrom',
+    'dateTo',
+    'page',
+    'limit',
+    'season',
+    'search',
+    'refund',
+    'sort',
+  ]) {
+    if (q[k] !== undefined && typeof q[k] !== 'string') return `${k} không hợp lệ`;
+  }
+  for (const k of ['customer', 'categoryId', 'createdBy', 'season']) {
+    const v = str(k);
+    if (v && !mongoose.isValidObjectId(v)) return `${k} không hợp lệ`;
+  }
+  for (const k of ['dateFrom', 'dateTo']) {
+    const v = str(k);
+    if (v && !isDateStr(v)) return `${k} không hợp lệ`;
+  }
+  const type = str('type');
+  if (type && !TYPES.includes(type)) return 'type không hợp lệ';
+  const refund = str('refund');
+  if (refund && !REFUNDS.includes(refund)) return 'refund không hợp lệ';
+  const sort = str('sort');
+  if (sort && !SORTS.includes(sort)) return 'sort không hợp lệ';
+  const page = str('page');
+  if (page && !isPositiveInt(page)) return 'page không hợp lệ';
+  const limit = str('limit');
+  if (limit && (!isPositiveInt(limit) || Number(limit) > MAX_LIMIT)) return 'limit không hợp lệ';
+  if ((str('search') ?? '').length > 200) return 'search quá dài';
+  return null;
+};
+
+const oid = (v: string) => new mongoose.Types.ObjectId(v);
+
+/** Bộ lọc dùng được cho cả `find` lẫn `aggregate` (id đã ép kiểu ObjectId). */
 const buildFilter = (q: TransactionQuery) => {
   const filter: Record<string, unknown> = {};
-  if (q.customer) filter.customer = q.customer;
+  if (q.customer) filter.customer = oid(q.customer);
   if (q.type) filter.type = q.type;
-  if (q.categoryId) filter.categoryId = q.categoryId;
-  if (q.createdBy) filter.createdBy = q.createdBy;
+  if (q.categoryId) filter.categoryId = oid(q.categoryId);
+  if (q.createdBy) filter.createdBy = oid(q.createdBy);
   if (q.dateFrom || q.dateTo) {
     const dateRange: Record<string, Date> = {};
     if (q.dateFrom) dateRange.$gte = new Date(q.dateFrom);
     if (q.dateTo) dateRange.$lte = new Date(q.dateTo);
     filter.date = dateRange;
+  }
+  const search = q.search?.trim();
+  if (search) filter.description = { $regex: escapeRegex(search), $options: 'i' };
+  if (q.refund) {
+    // Chỉ khoản chi mới có trạng thái hoàn tiền; lọc kèm Thu → không có kết quả
+    filter.type = q.type && q.type !== 'expense' ? { $in: [] } : 'expense';
+    filter.accountantRefunded = q.refund === 'done' ? true : { $ne: true };
   }
   return filter;
 };
@@ -51,11 +124,32 @@ const seasonDateRange = async (season: string): Promise<{ $gte: Date; $lte: Date
   return { $gte: start, $lte: end };
 };
 
-export const getAll = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
-  const { page = '1', limit = '20', season, ...rest } = req.query as TransactionQuery;
+/** Tổng thu / chi (tiền + số giao dịch) của toàn bộ tập đã lọc. */
+const filteredTotals = async (match: Record<string, unknown>) => {
+  const rows = await Transaction.aggregate<{
+    _id: 'income' | 'expense';
+    amount: number;
+    count: number;
+  }>([
+    { $match: match },
+    { $group: { _id: '$type', amount: { $sum: '$amount' }, count: { $sum: 1 } } },
+  ]);
+  const by = (t: string) => rows.find((r) => r._id === t);
+  return {
+    income: by('income')?.amount ?? 0,
+    expense: by('expense')?.amount ?? 0,
+    incomeCount: by('income')?.count ?? 0,
+    expenseCount: by('expense')?.count ?? 0,
+  };
+};
+
+export const getAll = async (req: Request, res: Response): Promise<void> => {
+  const invalid = validateQuery(req.query);
+  if (invalid) {
+    sendResponse(res, 400, false, invalid);
+    return;
+  }
+  const { page = '1', limit = '20', season, sort, ...rest } = req.query as TransactionQuery;
   const filter = buildFilter(rest);
   if (!isPrivileged(req.user!.roles)) {
     filter.createdBy = req.user!._id;
@@ -67,9 +161,11 @@ export const getAll = async (
     if (range) filter.date = range;
   }
   const skip = (Number(page) - 1) * Number(limit);
+  const dir = sort === 'date_asc' ? 1 : -1;
   const USER_FIELDS = '_id username name roles isActive createdAt';
-  const CUSTOMER_FIELDS = '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
-  const [data, total] = await Promise.all([
+  const CUSTOMER_FIELDS =
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
+  const [data, total, totals] = await Promise.all([
     Transaction.find(filter)
       .populate({
         path: 'customer',
@@ -78,20 +174,27 @@ export const getAll = async (
       })
       .populate('categoryId')
       .populate('createdBy', USER_FIELDS)
-      .sort({ date: -1 })
+      .sort({ date: dir, _id: dir })
       .skip(skip)
       .limit(Number(limit))
       .lean<TransactionResponse[]>(),
     Transaction.countDocuments(filter),
+    filteredTotals(filter),
   ]);
-  sendResponse(res, 200, true, 'OK', data, { total, page: Number(page), limit: Number(limit) });
+  sendResponse(res, 200, true, 'OK', data, {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totals,
+  });
 };
 
-export const getOne = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
-  const tx = await Transaction.findById(req.params.id)
+export const getOne = async (req: Request, res: Response): Promise<void> => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    sendResponse(res, 404, false, 'Not found');
+    return;
+  }
+  const tx = await Transaction.findOne({ _id: req.params.id, ...ownScope(req) })
     .populate({ path: 'customer', populate: { path: 'schoolId', select: 'name address' } })
     .populate('categoryId')
     .populate('createdBy')
@@ -107,6 +210,7 @@ export const create = async (req: Request, res: Response): Promise<void> => {
   const createdBy =
     isPrivileged(req.user!.roles) && req.body.createdBy ? req.body.createdBy : req.user!._id;
   const payload = { ...req.body, createdBy };
+  stripRefundFields(req, payload);
   if (!payload.season) {
     payload.season = await resolveSeasonForDate(payload.date);
   }
@@ -132,18 +236,27 @@ export const create = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    sendResponse(res, 404, false, 'Not found');
+    return;
+  }
   const updateData = { ...req.body };
   if (!isPrivileged(req.user!.roles)) {
     delete updateData.createdBy;
   }
+  stripRefundFields(req, updateData);
   // Nếu đổi ngày mà client không gửi season, tự tính lại
   if (updateData.date && !updateData.season) {
     updateData.season = await resolveSeasonForDate(updateData.date);
   }
-  const tx = await Transaction.findByIdAndUpdate(req.params.id, updateData, {
-    new: true,
-    runValidators: true,
-  });
+  const tx = await Transaction.findOneAndUpdate(
+    { _id: req.params.id, ...ownScope(req) },
+    updateData,
+    {
+      new: true,
+      runValidators: true,
+    },
+  );
   if (!tx) {
     sendResponse(res, 404, false, 'Not found');
     return;
@@ -152,7 +265,11 @@ export const update = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const remove = async (req: Request, res: Response): Promise<void> => {
-  const tx = await Transaction.findByIdAndDelete(req.params.id);
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    sendResponse(res, 404, false, 'Not found');
+    return;
+  }
+  const tx = await Transaction.findOneAndDelete({ _id: req.params.id, ...ownScope(req) });
   if (!tx) {
     sendResponse(res, 404, false, 'Not found');
     return;
@@ -160,10 +277,12 @@ export const remove = async (req: Request, res: Response): Promise<void> => {
   sendResponse(res, 200, true, 'Đã xóa giao dịch');
 };
 
-export const getSummary = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const getSummary = async (req: Request, res: Response): Promise<void> => {
+  const invalid = validateQuery(req.query);
+  if (invalid) {
+    sendResponse(res, 400, false, invalid);
+    return;
+  }
   const { dateFrom, dateTo, season } = req.query as {
     dateFrom?: string;
     dateTo?: string;
@@ -180,24 +299,22 @@ export const getSummary = async (
 
   const dateFilter = Object.keys(matchDate).length ? { date: matchDate } : {};
   const createdByFilter = isPrivileged(req.user!.roles) ? {} : { createdBy: req.user!._id };
+  const isIncome = { $eq: ['$type', 'income'] };
+  const isExpense = { $eq: ['$type', 'expense'] };
+  const isPending = { $and: [isExpense, { $ne: ['$accountantRefunded', true] }] };
 
+  // Một dòng / lớp (kể cả `_id: null` = giao dịch không gắn lớp) để tổng các dòng khớp KPI
   const rows = await Transaction.aggregate([
     { $match: { ...dateFilter, ...createdByFilter } },
     {
       $group: {
-        _id: { customer: '$customer', type: '$type' },
-        total: { $sum: '$amount' },
-      },
-    },
-    {
-      $group: {
-        _id: '$_id.customer',
-        income: {
-          $sum: { $cond: [{ $eq: ['$_id.type', 'income'] }, '$total', 0] },
-        },
-        expense: {
-          $sum: { $cond: [{ $eq: ['$_id.type', 'expense'] }, '$total', 0] },
-        },
+        _id: '$customer',
+        income: { $sum: { $cond: [isIncome, '$amount', 0] } },
+        expense: { $sum: { $cond: [isExpense, '$amount', 0] } },
+        incomeCount: { $sum: { $cond: [isIncome, 1, 0] } },
+        expenseCount: { $sum: { $cond: [isExpense, 1, 0] } },
+        pendingRefund: { $sum: { $cond: [isPending, '$amount', 0] } },
+        pendingRefundCount: { $sum: { $cond: [isPending, 1, 0] } },
       },
     },
     {
@@ -214,6 +331,11 @@ export const getSummary = async (
         income: 1,
         expense: 1,
         profit: { $subtract: ['$income', '$expense'] },
+        count: { $add: ['$incomeCount', '$expenseCount'] },
+        incomeCount: 1,
+        expenseCount: 1,
+        pendingRefund: 1,
+        pendingRefundCount: 1,
       },
     },
     // Gắn trường (schoolId → { _id, name, address }) như các API populate khác

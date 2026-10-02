@@ -150,6 +150,13 @@ export interface TransactionSummaryRow {
   income: number;
   expense: number;
   profit: number;
+  /** Số giao dịch (thu + chi). */
+  count: number;
+  incomeCount: number;
+  expenseCount: number;
+  /** Tổng các khoản chi kế toán chưa hoàn tiền. */
+  pendingRefund: number;
+  pendingRefundCount: number;
 }
 
 export interface StudentDto {
