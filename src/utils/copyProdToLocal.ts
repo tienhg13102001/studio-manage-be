@@ -25,6 +25,7 @@ const COLLECTIONS = [
   'costumetypes', // phòng trường hợp tên khác
   'categories',
   'packages',
+  'schools',
   'customers',
   'schedules',
   'students',

@@ -18,6 +18,9 @@ import userRoutes from './routes/users';
 import telegramRoutes from './routes/telegram';
 import seasonController from './routes/season';
 import dashboardRoutes from './routes/dashboard';
+import { normalizeScheduleStatus } from './utils/normalizeScheduleStatus';
+import { migrateSchoolsOnStartup } from './utils/migrateSchools';
+import schoolRoutes from './routes/schools';
 
 const app = express();
 
@@ -27,6 +30,7 @@ app.use(express.json());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/customers', customerRoutes);
+app.use('/api/schools', schoolRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/categories', categoryRoutes);
@@ -51,7 +55,9 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 const PORT = Number(process.env.PORT) || 5000;
 
-connectDB().then(() => {
+connectDB().then(async () => {
+  await normalizeScheduleStatus();
+  await migrateSchoolsOnStartup();
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 });
 

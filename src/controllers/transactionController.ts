@@ -61,10 +61,14 @@ export const getAll = async (
   }
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
-  const CUSTOMER_FIELDS = '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
+  const CUSTOMER_FIELDS = '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
   const [data, total] = await Promise.all([
     Transaction.find(filter)
-      .populate('customer', CUSTOMER_FIELDS)
+      .populate({
+        path: 'customer',
+        select: CUSTOMER_FIELDS,
+        populate: { path: 'schoolId', select: 'name address' },
+      })
       .populate('categoryId')
       .populate('createdBy', USER_FIELDS)
       .sort({ date: -1 })
@@ -81,7 +85,7 @@ export const getOne = async (
   res: Response,
 ): Promise<void> => {
   const tx = await Transaction.findById(req.params.id)
-    .populate('customer')
+    .populate({ path: 'customer', populate: { path: 'schoolId', select: 'name address' } })
     .populate('categoryId')
     .populate('createdBy')
     .lean<TransactionResponse | null>();
@@ -196,6 +200,33 @@ export const getSummary = async (
         profit: { $subtract: ['$income', '$expense'] },
       },
     },
+    // Gắn trường (schoolId → { _id, name, address }) như các API populate khác
+    {
+      $lookup: {
+        from: 'schools',
+        localField: 'customer.schoolId',
+        foreignField: '_id',
+        pipeline: [{ $project: { name: 1, address: 1 } }],
+        as: 'school',
+      },
+    },
+    {
+      $set: {
+        customer: {
+          $cond: [
+            { $ifNull: ['$customer', false] },
+            {
+              $mergeObjects: [
+                '$customer',
+                { schoolId: { $ifNull: [{ $arrayElemAt: ['$school', 0] }, null] } },
+              ],
+            },
+            '$$REMOVE',
+          ],
+        },
+      },
+    },
+    { $unset: ['school', 'customer.legacySchool'] },
     { $sort: { 'customer.className': 1 } },
   ]);
 

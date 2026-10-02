@@ -38,7 +38,8 @@ const migrate = async (): Promise<void> => {
       .lean();
 
     let status: CustomerStatus = 'new';
-    if (schedules.some((s) => s.status === 'completed')) status = 'shot';
+    // Script lịch sử: chạy trước khi lịch chụp bỏ trạng thái `completed` (nay chỉ còn active/cancelled)
+    if (schedules.some((s) => (s.status as string) === 'completed')) status = 'shot';
     else if (schedules.some((s) => s.contractUrl)) status = 'scheduled';
     else if (schedules.length) status = 'deposited';
     counts[status] = (counts[status] ?? 0) + 1;

@@ -12,7 +12,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total, totalUnread] = await Promise.all([
     Feedback.find(query)
-      .populate('customer')
+      .populate({ path: 'customer', populate: { path: 'schoolId', select: 'name address' } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))

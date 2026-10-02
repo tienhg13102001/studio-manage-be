@@ -118,7 +118,11 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
   const showSchedules = privileged || isPhotographer(userRoles);
   if (showSchedules) {
     const shootDateFilter = { shootDate: dateRange };
-    let scheduleFilter: Record<string, unknown> = { ...shootDateFilter };
+    // Lịch đã huỷ không tính vào số lịch / lịch sắp tới
+    let scheduleFilter: Record<string, unknown> = {
+      ...shootDateFilter,
+      status: { $ne: 'cancelled' },
+    };
 
     if (filterUserId) {
       scheduleFilter = {
@@ -138,7 +142,11 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
     [scheduleCount, upcomingSchedules] = await Promise.all([
       Schedule.countDocuments(scheduleFilter),
       Schedule.find(upcomingFilter)
-        .populate('customer', 'className school')
+        .populate({
+          path: 'customer',
+          select: 'className schoolId status',
+          populate: { path: 'schoolId', select: 'name address' },
+        })
         .populate('leadPhotographer', 'name username')
         .sort({ shootDate: 1 })
         .limit(10)

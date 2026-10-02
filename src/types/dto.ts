@@ -7,6 +7,9 @@
  * receives a consistent, strict shape.
  */
 
+import type { CustomerStatus } from '../models/Customer';
+import type { ScheduleStatus } from '../models/Schedule';
+
 export type UserRole = 0 | 1 | 2 | 3 | 4 | 5;
 
 export interface UserDto {
@@ -18,10 +21,23 @@ export interface UserDto {
   createdAt?: string;
 }
 
+/** Trường đã populate trên lớp (`customer.schoolId`). */
+export interface SchoolRefDto {
+  _id: string;
+  name: string;
+  address?: string;
+}
+
+export interface SchoolDto extends SchoolRefDto {
+  note?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface CustomerDto {
   _id: string;
   className: string;
-  school?: string;
+  schoolId?: SchoolRefDto | null;
   contactName: string;
   contactPhone: string;
   contactAddress: string;
@@ -29,6 +45,8 @@ export interface CustomerDto {
   totalMale?: number;
   totalFemale?: number;
   notes?: string;
+  /** Trạng thái quy trình của lớp — cũng là trạng thái hiển thị của lịch chụp. */
+  status?: CustomerStatus;
   createdAt?: string;
 }
 
@@ -82,7 +100,7 @@ export interface ScheduleDto {
   leadPhotographer: string | null;
   supportPhotographers: string[];
   bookedBy: string | null;
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  status: ScheduleStatus;
   notes?: string;
   season?: string | null;
   contractUrl?: string;
@@ -199,7 +217,7 @@ export interface PublicScheduleResponse {
   endTime?: string;
   location?: string;
   status: ScheduleDto['status'];
-  customer: Pick<CustomerDto, '_id' | 'className' | 'school'>;
+  customer: Pick<CustomerDto, '_id' | 'className' | 'schoolId'>;
   costumes: CostumeDto[];
   package: {
     _id: string;
@@ -215,7 +233,7 @@ export interface UpcomingScheduleDto {
   endTime?: string;
   location?: string;
   status: ScheduleDto['status'];
-  customer?: Pick<CustomerDto, '_id' | 'className' | 'school'>;
+  customer?: Pick<CustomerDto, '_id' | 'className' | 'schoolId' | 'status'>;
   leadPhotographer?: Pick<UserDto, '_id' | 'name' | 'username'>;
 }
 

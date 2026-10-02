@@ -9,17 +9,19 @@ import CustomerActivity from '../models/CustomerActivity';
 import Schedule, { ISchedule } from '../models/Schedule';
 import Transaction, { ITransaction } from '../models/Transaction';
 import Category from '../models/Category';
+import School, { toSchoolSearchKey } from '../models/School';
 import { createScheduleWithSideEffects } from '../services/scheduleService';
 import { notifyByRoles } from '../services/telegramService';
 import { resolveCurrentSeason } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 
 const USER_REF_FIELDS = 'name username';
+const SCHOOL_REF_FIELDS = 'name address';
 
 // Chỉ các field này được sửa qua POST/PUT; field quy trình chỉ đổi qua POST /:id/status
 const EDITABLE_FIELDS = [
   'className',
-  'school',
+  'schoolId',
   'contactName',
   'contactPhone',
   'contactAddress',
@@ -44,6 +46,12 @@ const PRE_DEPOSIT: CustomerStatus[] = ['new', 'contacting', 'contacted'];
 const isAdmin = (req: Request) => req.user!.roles.some((r) => r === 0 || r === 1);
 const isSale = (req: Request) => req.user!.roles.some((r) => r === 2 || r === 4);
 
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Tên trường từ schoolId đã populate */
+const schoolName = (school: unknown): string =>
+  (school as { name?: string } | null | undefined)?.name ?? '';
+
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -59,6 +67,11 @@ const pickEditable = (req: Request): Record<string, unknown> | string => {
   const data: Record<string, unknown> = {};
   for (const f of EDITABLE_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(body, f)) data[f] = body[f];
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'schoolId')) {
+    const v = data.schoolId;
+    if (v === null || v === '') data.schoolId = null;
+    else if (typeof v !== 'string' || !mongoose.isValidObjectId(v)) return 'schoolId không hợp lệ';
   }
   if (isAdmin(req) && Object.prototype.hasOwnProperty.call(body, 'assignedSale')) {
     const v = body.assignedSale;
@@ -76,15 +89,38 @@ const resolveSaleParam = (req: Request, value?: string): Types.ObjectId | null |
   return mongoose.isValidObjectId(value) ? new Types.ObjectId(value) : null;
 };
 
+/** schoolId gửi lên phải là trường đang tồn tại */
+const schoolMissing = async (data: Record<string, unknown>): Promise<boolean> =>
+  typeof data.schoolId === 'string' && !(await School.exists({ _id: data.schoolId }));
+
 export const getAll = async (req: Request, res: Response): Promise<void> => {
-  const search = queryStr(req.query.search);
+  const search = queryStr(req.query.search)?.trim();
   const page = Number(queryStr(req.query.page) ?? '1') || 1;
   const limit = Number(queryStr(req.query.limit) ?? '20') || 20;
   const season = queryStr(req.query.season);
   const status = queryStr(req.query.status);
   const assignedSale = queryStr(req.query.assignedSale);
+  const schoolId = queryStr(req.query.schoolId);
 
-  const query: Record<string, unknown> = search ? { $text: { $search: search } } : {};
+  const query: Record<string, unknown> = {};
+  if (search) {
+    // Khớp tên lớp hoặc tên trường (không dấu)
+    const schoolKey = toSchoolSearchKey(search);
+    const schoolIds = schoolKey
+      ? await School.find({ searchKey: { $regex: escapeRegex(schoolKey) } }).distinct('_id')
+      : [];
+    query.$or = [
+      { className: { $regex: escapeRegex(search), $options: 'i' } },
+      ...(schoolIds.length ? [{ schoolId: { $in: schoolIds } }] : []),
+    ];
+  }
+  if (schoolId) {
+    if (!mongoose.isValidObjectId(schoolId)) {
+      sendResponse(res, 400, false, 'schoolId không hợp lệ');
+      return;
+    }
+    query.schoolId = new Types.ObjectId(schoolId);
+  }
   if (season) {
     if (!mongoose.isValidObjectId(season)) {
       sendResponse(res, 400, false, 'season không hợp lệ');
@@ -113,6 +149,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const [data, total] = await Promise.all([
     Customer.find(query)
       .populate('assignedSale', USER_REF_FIELDS)
+      .populate('schoolId', SCHOOL_REF_FIELDS)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -125,7 +162,15 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
 export const getStatusCounts = async (req: Request, res: Response): Promise<void> => {
   const season = queryStr(req.query.season);
   const assignedSale = queryStr(req.query.assignedSale);
+  const schoolId = queryStr(req.query.schoolId);
   const match: Record<string, unknown> = {};
+  if (schoolId) {
+    if (!mongoose.isValidObjectId(schoolId)) {
+      sendResponse(res, 400, false, 'schoolId không hợp lệ');
+      return;
+    }
+    match.schoolId = new Types.ObjectId(schoolId);
+  }
   if (season) {
     if (!mongoose.isValidObjectId(season)) {
       sendResponse(res, 400, false, 'season không hợp lệ');
@@ -158,6 +203,7 @@ export const getStatusCounts = async (req: Request, res: Response): Promise<void
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const customer = await Customer.findById(req.params.id)
     .populate('assignedSale', USER_REF_FIELDS)
+    .populate('schoolId', SCHOOL_REF_FIELDS)
     .lean();
   if (!customer) {
     sendResponse(res, 404, false, 'Not found');
@@ -173,11 +219,19 @@ export const create = async (req: Request, res: Response): Promise<void> => {
     sendResponse(res, 400, false, data);
     return;
   }
+  if (await schoolMissing(data)) {
+    sendResponse(res, 400, false, 'Trường không tồn tại');
+    return;
+  }
   const payload: Record<string, unknown> = { ...data, createdBy: req.user!._id };
   if (!payload.season) {
     payload.season = await resolveCurrentSeason();
   }
-  const customer = await Customer.create(payload);
+  const created = await Customer.create(payload);
+  const customer = await Customer.findById(created._id)
+    .populate('assignedSale', USER_REF_FIELDS)
+    .populate('schoolId', SCHOOL_REF_FIELDS)
+    .lean();
   sendResponse(res, 201, true, 'Tạo khách hàng thành công', customer);
 };
 
@@ -187,11 +241,18 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     sendResponse(res, 400, false, data);
     return;
   }
+  if (await schoolMissing(data)) {
+    sendResponse(res, 400, false, 'Trường không tồn tại');
+    return;
+  }
   const customer = await Customer.findByIdAndUpdate(
     req.params.id,
     { $set: data },
     { new: true, runValidators: true },
-  ).lean();
+  )
+    .populate('assignedSale', USER_REF_FIELDS)
+    .populate('schoolId', SCHOOL_REF_FIELDS)
+    .lean();
   if (!customer) {
     sendResponse(res, 404, false, 'Not found');
     return;
@@ -301,11 +362,14 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
     sendResponse(res, 404, false, 'Not found');
     return;
   }
-  const customer = await Customer.findById(req.params.id).lean();
+  const customer = await Customer.findById(req.params.id)
+    .populate('schoolId', SCHOOL_REF_FIELDS)
+    .lean();
   if (!customer) {
     sendResponse(res, 404, false, 'Not found');
     return;
   }
+  const customerSchool = schoolName(customer.schoolId);
 
   const current: CustomerStatus = customer.status ?? 'new';
   if (current === target) {
@@ -479,7 +543,7 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
           type: 'income',
           amount: deposit.amount,
           categoryId: category._id,
-          description: `Tiền cọc – ${customer.className} ${customer.school ?? ''}`.trim(),
+          description: `Tiền cọc – ${customer.className} ${customerSchool}`.trim(),
           date: deposit.date,
           season: customer.season ?? null,
           createdBy: user._id,
@@ -520,6 +584,7 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
 
   const updated = await Customer.findById(customer._id)
     .populate('assignedSale', USER_REF_FIELDS)
+    .populate('schoolId', SCHOOL_REF_FIELDS)
     .lean();
 
   sendResponse(res, 200, true, 'Đã cập nhật trạng thái', {
@@ -536,7 +601,7 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
     const text =
       `💰 <b>Lớp chốt cọc</b>\n` +
       `👥 ${escapeHtml(customer.className)}` +
-      `${customer.school ? ` - ${escapeHtml(customer.school)}` : ''}\n` +
+      `${customerSchool ? ` - ${escapeHtml(customerSchool)}` : ''}\n` +
       `💵 ${deposit.amount.toLocaleString('vi-VN')}đ\n` +
       `🧑‍💼 Sale: ${saleName}`;
     void notifyByRoles([0, 1], text).catch((e: unknown) =>

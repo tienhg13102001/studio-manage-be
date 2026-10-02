@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import path from 'path';
-import Schedule from '../models/Schedule';
-import Customer from '../models/Customer';
+import { isValidObjectId } from 'mongoose';
+import Schedule, { SCHEDULE_STATUSES } from '../models/Schedule';
+import Customer, { CUSTOMER_STATUSES } from '../models/Customer';
 import CustomerActivity from '../models/CustomerActivity';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
@@ -10,13 +11,19 @@ import type { ISeason } from '../models/Season';
 import type { ScheduleResponse } from '../types/dto';
 import { notifyUsers } from '../services/telegramService';
 import { deleteFolderAndRow } from '../services/googleSheetService';
-import { createScheduleWithSideEffects } from '../services/scheduleService';
+import {
+  createScheduleWithSideEffects,
+  findPreferredScheduleId,
+} from '../services/scheduleService';
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 
 interface ScheduleQuery {
   customer?: string;
+  /** Trạng thái quy trình của lớp (Customer.status), hoặc `cancelled` để xem lịch đã huỷ. */
   status?: string;
+  /** `true` → trả cả lịch đã huỷ (vd: trang chi tiết lớp). Mặc định chỉ lịch đang áp dụng. */
+  includeCancelled?: string;
   dateFrom?: string;
   dateTo?: string;
   page?: string;
@@ -24,10 +31,42 @@ interface ScheduleQuery {
   season?: string;
 }
 
-const buildFilter = (q: ScheduleQuery) => {
+const isCustomerStatus = (v: string): v is (typeof CUSTOMER_STATUSES)[number] =>
+  (CUSTOMER_STATUSES as readonly string[]).includes(v);
+
+/** Trả về thông báo lỗi nếu query lọc không hợp lệ (status/customer), ngược lại `null`. */
+const validateQuery = (q: Record<string, unknown>): string | null => {
+  if (
+    q.status !== undefined &&
+    q.status !== '' &&
+    (typeof q.status !== 'string' || (q.status !== 'cancelled' && !isCustomerStatus(q.status)))
+  ) {
+    return 'status không hợp lệ';
+  }
+  if (q.customer !== undefined && q.customer !== '' && !isValidObjectId(q.customer)) {
+    return 'customer không hợp lệ';
+  }
+  return null;
+};
+
+const buildFilter = async (q: ScheduleQuery) => {
   const filter: Record<string, unknown> = {};
   if (q.customer) filter.customer = q.customer;
-  if (q.status) filter.status = q.status;
+  if (q.status === 'cancelled') {
+    filter.status = 'cancelled';
+  } else {
+    if (q.includeCancelled !== 'true') filter.status = { $ne: 'cancelled' };
+    if (q.status && isCustomerStatus(q.status)) {
+      // Lọc theo trạng thái của lớp. Không lọc Customer theo mùa vì mùa của lịch chụp
+      // (đã lọc ở Schedule.season) có thể khác mùa của lớp.
+      const customerIds = await Customer.find({
+        // Dữ liệu cũ chưa có status được tính là `new` (giống customerController)
+        status: q.status === 'new' ? { $in: ['new', null] } : q.status,
+        ...(q.customer ? { _id: q.customer } : {}),
+      }).distinct('_id');
+      filter.customer = { $in: customerIds };
+    }
+  }
   if (q.dateFrom || q.dateTo) {
     const dateRange: Record<string, Date> = {};
     if (q.dateFrom) dateRange.$gte = new Date(q.dateFrom);
@@ -38,21 +77,30 @@ const buildFilter = (q: ScheduleQuery) => {
 };
 
 const FONT_REGULAR = path.join(__dirname, '../../src/assets/fonts/Roboto-Regular.ttf');
+const SCHOOL_POPULATE = { path: 'schoolId', select: 'name address' };
+const schoolName = (customer?: { schoolId?: unknown } | null): string =>
+  (customer?.schoolId as { name?: string } | null | undefined)?.name ?? '';
+
 const FONT_BOLD = path.join(__dirname, '../../src/assets/fonts/Roboto-Bold.ttf');
 
 export const getAll = async (req: Request, res: Response): Promise<void> => {
+  const invalid = validateQuery(req.query);
+  if (invalid) {
+    sendResponse(res, 400, false, invalid);
+    return;
+  }
   const { page = '1', limit = '20', season, ...rest } = req.query as ScheduleQuery;
-  const filter = buildFilter(rest);
+  const filter = await buildFilter(rest);
   if (season) {
     filter.season = season;
   }
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status createdAt';
   const [data, total] = await Promise.all([
     Schedule.find(filter)
-      .populate('customer', CUSTOMER_FIELDS)
+      .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
       .populate({ path: 'package', populate: { path: 'costumes' } })
       .populate('costumes')
       .populate('leadPhotographer', USER_FIELDS)
@@ -70,25 +118,32 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
 export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
-  const schedule = await Schedule.findOne({ customer: req.params.customer })
-    .populate('customer', CUSTOMER_FIELDS)
-    .populate({ path: 'package', populate: { path: 'costumes' } })
-    .populate('costumes')
-    .populate('leadPhotographer', USER_FIELDS)
-    .populate('supportPhotographers', USER_FIELDS)
-    .populate('bookedBy', USER_FIELDS)
-    .sort({ shootDate: -1 })
-    .lean<ScheduleResponse | null>();
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status createdAt';
+  if (!isValidObjectId(req.params.customer)) {
+    sendResponse(res, 400, false, 'customer không hợp lệ');
+    return;
+  }
+  // Ưu tiên lịch đang áp dụng (mới nhất); chỉ trả lịch đã huỷ khi lớp không còn lịch nào khác
+  const scheduleId = await findPreferredScheduleId(req.params.customer);
+  const schedule = scheduleId
+    ? await Schedule.findById(scheduleId)
+        .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
+        .populate({ path: 'package', populate: { path: 'costumes' } })
+        .populate('costumes')
+        .populate('leadPhotographer', USER_FIELDS)
+        .populate('supportPhotographers', USER_FIELDS)
+        .populate('bookedBy', USER_FIELDS)
+        .lean<ScheduleResponse | null>()
+    : null;
   sendResponse(res, 200, true, 'OK', schedule);
 };
 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className school contactName contactPhone contactAddress total totalMale totalFemale notes createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status createdAt';
   const schedule = await Schedule.findById(req.params.id)
-    .populate('customer', CUSTOMER_FIELDS)
+    .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
     .populate({ path: 'package', populate: { path: 'costumes' } })
     .populate('costumes')
     .populate('leadPhotographer', USER_FIELDS)
@@ -102,13 +157,59 @@ export const getOne = async (req: Request, res: Response): Promise<void> => {
   sendResponse(res, 200, true, 'OK', schedule);
 };
 
+// Tương thích khi rollout: client cũ còn gửi pending/confirmed/completed → coi là `active`.
+// Remove after one release: bỏ LEGACY_STATUSES khi mọi client đã lên bản mới.
+const LEGACY_STATUSES: readonly unknown[] = ['pending', 'confirmed', 'completed'];
+
+/**
+ * Chuẩn hoá `status` trong body: chấp nhận `active` | `cancelled` (hoặc bỏ trống), giá trị cũ
+ * được chuyển thành `active`. Trả về `false` nếu giá trị không hợp lệ.
+ */
+const normalizeBodyStatus = (body: Record<string, unknown> | undefined): boolean => {
+  if (!body || body.status === undefined) return true;
+  if (LEGACY_STATUSES.includes(body.status)) {
+    body.status = 'active';
+    return true;
+  }
+  return (SCHEDULE_STATUSES as readonly unknown[]).includes(body.status);
+};
+
+const INVALID_STATUS_MSG = 'Trạng thái lịch chụp không hợp lệ (chỉ active hoặc cancelled)';
+
 export const create = async (req: Request, res: Response): Promise<void> => {
-  const schedule = await createScheduleWithSideEffects(req.body);
+  if (!normalizeBodyStatus(req.body)) {
+    sendResponse(res, 400, false, INVALID_STATUS_MSG);
+    return;
+  }
+  // Lịch mới luôn ở trạng thái `active` — không tạo lịch đã huỷ (tránh tạo folder/Telegram thừa)
+  const { status: _status, ...body } = req.body as Record<string, unknown>;
+  const schedule = await createScheduleWithSideEffects(body);
   sendResponse(res, 201, true, 'Tạo lịch chụp thành công', schedule);
 };
 
 export const update = async (req: Request, res: Response): Promise<void> => {
+  if (!normalizeBodyStatus(req.body)) {
+    sendResponse(res, 400, false, INVALID_STATUS_MSG);
+    return;
+  }
   const prevSchedule = await Schedule.findById(req.params.id).lean();
+  // Khôi phục lịch đã huỷ: mỗi lớp chỉ được có một lịch đang áp dụng
+  if (prevSchedule?.status === 'cancelled' && req.body?.status === 'active') {
+    const otherActive = await Schedule.exists({
+      _id: { $ne: prevSchedule._id },
+      customer: req.body.customer ?? prevSchedule.customer,
+      status: { $ne: 'cancelled' },
+    });
+    if (otherActive) {
+      sendResponse(
+        res,
+        409,
+        false,
+        'Lớp này đã có lịch chụp khác đang áp dụng. Huỷ lịch đó trước khi khôi phục lịch này.',
+      );
+      return;
+    }
+  }
   const updateData = { ...req.body };
   // Nếu đổi ngày chụp mà client không gửi season, tự động tính lại theo mùa.
   if (
@@ -129,7 +230,12 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   // Có hợp đồng mới → lớp đang "Đã cọc" tự chuyển sang "Chưa chụp" (trước khi trả response
   // để client refetch thấy ngay trạng thái mới)
   const contractUrl = req.body?.contractUrl as string | undefined;
-  if (prevSchedule && contractUrl && contractUrl !== (prevSchedule.contractUrl ?? null)) {
+  if (
+    prevSchedule &&
+    schedule.status !== 'cancelled' &&
+    contractUrl &&
+    contractUrl !== (prevSchedule.contractUrl ?? null)
+  ) {
     try {
       const moved = await Customer.findOneAndUpdate(
         { _id: schedule.customer, status: 'deposited' },
@@ -158,14 +264,15 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     try {
       const full = await Schedule.findById(schedule._id)
         .populate<{
-          customer: Pick<ICustomer, 'className' | 'school'>;
-        }>('customer', 'className school')
+          customer: Pick<ICustomer, 'className' | 'schoolId'>;
+        }>({ path: 'customer', select: 'className schoolId', populate: SCHOOL_POPULATE })
         .lean();
       if (!full) return;
 
       const dateStr = new Date(full.shootDate).toLocaleDateString('vi-VN');
       const customerName = full.customer?.className ?? 'Khách hàng';
-      const customerSchool = full.customer?.school || '';
+      const customerSchool = schoolName(full.customer);
+      const classSchool = customerSchool ? `${customerName} - ${customerSchool}` : customerName;
       const timeStr = full.startTime ? ` • ${full.startTime}` : '';
       const locationStr = full.location ? `\n📍 ${full.location}` : '';
 
@@ -207,7 +314,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       if (addedIds.length) {
         const text =
           `📅 <b>Bạn được phân công lịch chụp</b>\n` +
-          `👥 ${customerName} - ${customerSchool}\n` +
+          `👥 ${classSchool}\n` +
           `📆 ${dateStr}${timeStr}${locationStr}`;
         await notifyUsers(addedIds, text);
       }
@@ -215,25 +322,19 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       if (removedIds.length) {
         const text =
           `🗑 <b>Bạn đã được gỡ khỏi lịch chụp</b>\n` +
-          `👥 ${customerName} - ${customerSchool}` +
+          `👥 ${classSchool}` +
           `\n📆 ${dateStr}${timeStr}${locationStr}`;
         await notifyUsers(removedIds, text);
       }
 
-      // ── 2. Thông báo đổi status cho tất cả thợ hiện tại ─────────────────
+      // ── 2. Thông báo huỷ / khôi phục lịch cho tất cả thợ hiện tại ───────
       const newStatus = req.body?.status as string | undefined;
-      if (newStatus && newStatus !== prevSchedule.status) {
-        const statusLabel: Record<string, string> = {
-          confirmed: '✅ Đã xác nhận',
-          completed: '🎉 Hoàn thành',
-          cancelled: '❌ Đã huỷ',
-          pending: '⏳ Chờ xác nhận',
-        };
-        const text =
-          `🔔 <b>Lịch chụp cập nhật trạng thái</b>\n` +
-          `👥 ${customerName} - ${customerSchool}\n` +
-          `📆 ${dateStr}${timeStr}${locationStr}\n` +
-          `Trạng thái: ${statusLabel[newStatus] ?? newStatus}`;
+      const wasCancelled = prevSchedule.status === 'cancelled';
+      if (newStatus && (newStatus === 'cancelled') !== wasCancelled) {
+        const title = wasCancelled
+          ? '♻️ <b>Lịch chụp được khôi phục</b>'
+          : '❌ <b>Lịch chụp đã bị huỷ</b>';
+        const text = `${title}\n` + `👥 ${classSchool}\n` + `📆 ${dateStr}${timeStr}${locationStr}`;
 
         const currentIds = [full.leadPhotographer, ...full.supportPhotographers]
           .filter(Boolean)
@@ -247,7 +348,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       if (newContractUrl && newContractUrl !== prevContractUrl) {
         const text =
           `📄 <b>Hợp đồng đã được tạo</b>\n` +
-          `👥 ${customerName} - ${customerSchool}\n` +
+          `👥 ${classSchool}\n` +
           `📆 ${dateStr}${timeStr}${locationStr}\n` +
           `🔗 ${newContractUrl}`;
 
@@ -287,7 +388,11 @@ export const exportContract = async (req: Request, res: Response): Promise<void>
   const schedule = await Schedule.findById(req.params.id)
     .populate<{
       customer: ICustomer;
-    }>('customer', 'className school contactName contactPhone total')
+    }>({
+      path: 'customer',
+      select: 'className schoolId contactName contactPhone total',
+      populate: SCHOOL_POPULATE,
+    })
     .populate<{ leadPhotographer: IUser }>('leadPhotographer', 'username name')
     .populate<{ supportPhotographers: IUser[] }>('supportPhotographers', 'username name');
 
@@ -348,7 +453,9 @@ export const exportContract = async (req: Request, res: Response): Promise<void>
     .font('Regular')
     .fontSize(10)
     .text(`Đại diện lớp: ${customer?.contactName ?? '____________________'}`)
-    .text(`Lớp / Trường: ${customer?.className ?? ''} – ${customer?.school ?? ''}`)
+    .text(
+      `Lớp / Trường: ${[customer?.className, schoolName(customer)].filter(Boolean).join(' – ')}`,
+    )
     .text(`Số điện thoại: ${customer?.contactPhone ?? '____________________'}`);
   doc.moveDown(1);
 

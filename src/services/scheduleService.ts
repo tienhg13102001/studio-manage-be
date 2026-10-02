@@ -1,5 +1,6 @@
+import type { Types } from 'mongoose';
 import Schedule, { ISchedule } from '../models/Schedule';
-import type { ICustomer } from '../models/Customer';
+import { CUSTOMER_STATUS_LABELS, type ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
 import type { ISeason } from '../models/Season';
 import { notifyUsers } from './telegramService';
@@ -22,7 +23,13 @@ export const createScheduleWithSideEffects = async (
 
   // Lấy bản populate để dựng tên folder + nội dung thông báo
   const full = await Schedule.findById(schedule._id)
-    .populate<{ customer: Pick<ICustomer, 'className' | 'school'> }>('customer', 'className school')
+    .populate<{
+      customer: Pick<ICustomer, 'className' | 'schoolId' | 'status'>;
+    }>({
+      path: 'customer',
+      select: 'className schoolId status',
+      populate: { path: 'schoolId', select: 'name' },
+    })
     .populate<{ leadPhotographer: Pick<IUser, 'name'> }>('leadPhotographer', 'name')
     .populate<{ supportPhotographers: Pick<IUser, 'name'>[] }>('supportPhotographers', 'name')
     .populate<{ season: Pick<ISeason, 'name'> }>('season', 'name')
@@ -47,7 +54,7 @@ export const createScheduleWithSideEffects = async (
       const result = await createFolderAndLog({
         scheduleId: String(full._id),
         season: seasonName,
-        school: full.customer?.school ?? '',
+        school: (full.customer?.schoolId as { name?: string } | null | undefined)?.name ?? '',
         className: full.customer?.className ?? '',
         shootDate: dateStr,
         startTime: full.startTime,
@@ -55,7 +62,11 @@ export const createScheduleWithSideEffects = async (
         leadPhotographer: leadName,
         supportPhotographers: supportNames,
         contractUrl: full.contractUrl,
-        status: full.status,
+        // Cột "Trạng thái" trên Sheet: lịch huỷ → "Đã huỷ", còn lại là trạng thái của lớp
+        status:
+          full.status === 'cancelled'
+            ? 'Đã huỷ'
+            : CUSTOMER_STATUS_LABELS[full.customer?.status ?? 'new'],
       });
 
       if (result?.folderUrl) {
@@ -91,4 +102,19 @@ export const createScheduleWithSideEffects = async (
   }
 
   return schedule;
+};
+
+/**
+ * Chọn lịch chụp đại diện của một lớp: ưu tiên lịch đang áp dụng (chưa huỷ), chỉ rơi về lịch
+ * đã huỷ khi lớp không còn lịch nào khác; cùng nhóm thì lấy ngày chụp mới nhất.
+ * Dùng chung cho GET /schedules/customer/:customer và route public của form học sinh.
+ */
+export const findPreferredScheduleId = async (customer: string): Promise<Types.ObjectId | null> => {
+  const pick = (extra: Record<string, unknown>) =>
+    Schedule.findOne({ customer, ...extra })
+      .select('_id')
+      .sort({ shootDate: -1 })
+      .lean<{ _id: Types.ObjectId } | null>();
+  const found = (await pick({ status: { $ne: 'cancelled' } })) ?? (await pick({}));
+  return found?._id ?? null;
 };

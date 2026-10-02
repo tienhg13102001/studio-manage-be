@@ -30,7 +30,9 @@ export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
 
 export interface ICustomer extends Document {
   className: string;
-  school?: string;
+  schoolId?: Types.ObjectId | null;
+  /** Sao lưu tên trường cũ (chuỗi) cho rollback migration — select: false */
+  legacySchool?: string;
   contactName: string;
   contactPhone: string;
   contactAddress: string;
@@ -51,7 +53,9 @@ export interface ICustomer extends Document {
 const customerSchema = new Schema<ICustomer>(
   {
     className: { type: String, required: true, trim: true },
-    school: { type: String, trim: true },
+    schoolId: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
+    // Tên trường dạng chuỗi trước khi chuyển sang schoolId — chỉ để rollback migration, không trả về API
+    legacySchool: { type: String, select: false },
     contactName: { type: String, required: true, trim: true },
     contactPhone: { type: String, required: true, trim: true },
     contactAddress: { type: String, required: true, trim: true },
@@ -82,7 +86,6 @@ const customerSchema = new Schema<ICustomer>(
   { timestamps: true },
 );
 
-customerSchema.index({ className: 'text', school: 'text' });
 customerSchema.index({ season: 1, createdAt: -1 });
 customerSchema.index({ createdBy: 1, createdAt: -1 });
 customerSchema.index({ status: 1, season: 1 });

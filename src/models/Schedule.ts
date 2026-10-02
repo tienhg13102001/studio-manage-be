@@ -19,6 +19,14 @@ const extraServiceSchema = new Schema<IExtraService>(
   { _id: false },
 );
 
+/**
+ * Lịch chụp chỉ còn cờ huỷ: `active` (đang áp dụng) hoặc `cancelled` (đã huỷ).
+ * Tiến độ của lớp nằm ở `Customer.status`. Dữ liệu cũ (pending/confirmed/completed)
+ * được chuẩn hoá về `active` lúc khởi động (utils/normalizeScheduleStatus.ts).
+ */
+export const SCHEDULE_STATUSES = ['active', 'cancelled'] as const;
+export type ScheduleStatus = (typeof SCHEDULE_STATUSES)[number];
+
 export interface ISchedule extends Document {
   customer: Types.ObjectId;
   package?: Types.ObjectId;
@@ -30,7 +38,7 @@ export interface ISchedule extends Document {
   leadPhotographer?: Types.ObjectId;
   supportPhotographers: Types.ObjectId[];
   bookedBy?: Types.ObjectId;
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  status: ScheduleStatus;
   notes?: string;
   season?: Types.ObjectId | null;
   contractUrl?: string;
@@ -53,8 +61,8 @@ const scheduleSchema = new Schema<ISchedule>(
     bookedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     status: {
       type: String,
-      enum: ['pending', 'confirmed', 'completed', 'cancelled'],
-      default: 'pending',
+      enum: SCHEDULE_STATUSES,
+      default: 'active',
     },
     notes: { type: String },
     season: { type: Schema.Types.ObjectId, ref: 'Season', default: null },
