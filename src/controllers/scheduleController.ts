@@ -3,7 +3,7 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import { isValidObjectId } from 'mongoose';
 import Schedule, { SCHEDULE_STATUSES } from '../models/Schedule';
-import Customer, { CUSTOMER_STATUSES } from '../models/Customer';
+import Customer, { CUSTOMER_STATUSES, type CustomerStatus } from '../models/Customer';
 import CustomerActivity from '../models/CustomerActivity';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
@@ -20,7 +20,10 @@ import { sendResponse } from '../utils/response';
 
 interface ScheduleQuery {
   customer?: string;
-  /** Trạng thái quy trình của lớp (Customer.status), hoặc `cancelled` để xem lịch đã huỷ. */
+  /**
+   * Trạng thái chụp (`deposited` | `not_shot` | `shot`), `cancelled` để xem lịch đã huỷ,
+   * hoặc (tương thích cũ) một trạng thái quy trình của lớp (Customer.status).
+   */
   status?: string;
   /** `true` → trả cả lịch đã huỷ (vd: trang chi tiết lớp). Mặc định chỉ lịch đang áp dụng. */
   includeCancelled?: string;
@@ -34,12 +37,29 @@ interface ScheduleQuery {
 const isCustomerStatus = (v: string): v is (typeof CUSTOMER_STATUSES)[number] =>
   (CUSTOMER_STATUSES as readonly string[]).includes(v);
 
+/** Trạng thái lớp được tính là "Đã chụp" trên trang Lịch chụp. */
+const SHOT_CUSTOMER_STATUSES: CustomerStatus[] = ['shot', 'awaiting_print', 'done'];
+
+/**
+ * Trạng thái chụp → điều kiện lọc Customer.status. `deposited` = Đã cọc, `shot` = Đã chụp,
+ * `not_shot` = Chưa chụp (mọi trạng thái còn lại, kể cả dữ liệu cũ chưa có status).
+ */
+const SHOOT_STATUS_FILTERS = {
+  deposited: 'deposited',
+  shot: { $in: SHOT_CUSTOMER_STATUSES },
+  not_shot: { $nin: ['deposited', ...SHOT_CUSTOMER_STATUSES] },
+} as const;
+
+const isShootStatus = (v: string): v is keyof typeof SHOOT_STATUS_FILTERS =>
+  Object.prototype.hasOwnProperty.call(SHOOT_STATUS_FILTERS, v);
+
 /** Trả về thông báo lỗi nếu query lọc không hợp lệ (status/customer), ngược lại `null`. */
 const validateQuery = (q: Record<string, unknown>): string | null => {
   if (
     q.status !== undefined &&
     q.status !== '' &&
-    (typeof q.status !== 'string' || (q.status !== 'cancelled' && !isCustomerStatus(q.status)))
+    (typeof q.status !== 'string' ||
+      (q.status !== 'cancelled' && !isShootStatus(q.status) && !isCustomerStatus(q.status)))
   ) {
     return 'status không hợp lệ';
   }
@@ -56,12 +76,15 @@ const buildFilter = async (q: ScheduleQuery) => {
     filter.status = 'cancelled';
   } else {
     if (q.includeCancelled !== 'true') filter.status = { $ne: 'cancelled' };
-    if (q.status && isCustomerStatus(q.status)) {
-      // Lọc theo trạng thái của lớp. Không lọc Customer theo mùa vì mùa của lịch chụp
-      // (đã lọc ở Schedule.season) có thể khác mùa của lớp.
+    const shootFilter =
+      q.status && isShootStatus(q.status) ? SHOOT_STATUS_FILTERS[q.status] : undefined;
+    if (q.status && (shootFilter || isCustomerStatus(q.status))) {
+      // Lọc theo trạng thái chụp / trạng thái của lớp. Không lọc Customer theo mùa vì mùa của
+      // lịch chụp (đã lọc ở Schedule.season) có thể khác mùa của lớp.
       const customerIds = await Customer.find({
-        // Dữ liệu cũ chưa có status được tính là `new` (giống customerController)
-        status: q.status === 'new' ? { $in: ['new', null] } : q.status,
+        // Dữ liệu cũ chưa có status được tính là `new` (giống customerController);
+        // `$nin` của not_shot đã bao gồm null/thiếu field.
+        status: shootFilter ?? (q.status === 'new' ? { $in: ['new', null] } : q.status),
         ...(q.customer ? { _id: q.customer } : {}),
       }).distinct('_id');
       filter.customer = { $in: customerIds };
