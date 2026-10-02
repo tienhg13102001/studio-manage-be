@@ -1,3 +1,17 @@
+/**
+ * Số thợ: crew = floor(n / k); phần dư > k/2 (hơn 50%) thì +1; có học sinh thì tối thiểu 1 thợ.
+ * k thiếu/0 → null. Giữ đồng bộ với frontend/src/utils/crewCount.ts.
+ */
+function calcCrewCount(total, studentsPerCrew) {
+  let k = Number(studentsPerCrew);
+  if (!isFinite(k) || k <= 0) return null;
+  let n = Number(total);
+  if (!isFinite(n) || n <= 0) return 0;
+  let crew = Math.floor(n / k);
+  if (n % k > k / 2) crew += 1;
+  return Math.max(crew, 1);
+}
+
 function doPost(e) {
   try {
     // 1. Nhận và Parse dữ liệu JSON
@@ -28,10 +42,11 @@ function doPost(e) {
     let totalFemale = data.totalFemale || 0;
 
     let studentsPerCrew = (data.package && data.package.studentsPerCrew) ? data.package.studentsPerCrew : 0;
-    let crewCount = 0;
-    if (studentsPerCrew > 0) {
-      crewCount = Math.floor(totalStudents / studentsPerCrew);
-    }
+    // Ưu tiên số thợ gửi từ hệ thống (đã chốt trong form hợp đồng); không có thì tự tính theo quy tắc mới
+    let sentCrewCount = Number(data.crewCount);
+    let crewCount = (data.crewCount !== null && data.crewCount !== undefined && data.crewCount !== "" && isFinite(sentCrewCount) && sentCrewCount >= 0)
+      ? sentCrewCount
+      : (calcCrewCount(totalStudents, studentsPerCrew) || 0);
 
     let printedPhotosCount = 2 * totalStudents;
 
