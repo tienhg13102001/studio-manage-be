@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import Transaction from '../models/Transaction';
 import Season from '../models/Season';
 import type {
@@ -38,6 +39,18 @@ const buildFilter = (q: TransactionQuery) => {
   return filter;
 };
 
+/** Khoảng ngày [đầu ngày bắt đầu, cuối ngày kết thúc] của mùa; null nếu không có mùa. */
+const seasonDateRange = async (season: string): Promise<{ $gte: Date; $lte: Date } | null> => {
+  if (!mongoose.isValidObjectId(season)) return null;
+  const seasonDoc = await Season.findById(season).select('startDate endDate').lean();
+  if (!seasonDoc) return null;
+  const start = new Date(seasonDoc.startDate);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(seasonDoc.endDate);
+  end.setHours(23, 59, 59, 999);
+  return { $gte: start, $lte: end };
+};
+
 export const getAll = async (
   req: Request,
   res: Response,
@@ -50,14 +63,8 @@ export const getAll = async (
   // When a season is selected and the user hasn't specified an explicit date range,
   // use the season's date range so overhead transactions (without a customer) are included.
   if (season && !rest.dateFrom && !rest.dateTo) {
-    const seasonDoc = await Season.findById(season).select('startDate endDate').lean();
-    if (seasonDoc) {
-      const start = new Date(seasonDoc.startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(seasonDoc.endDate);
-      end.setHours(23, 59, 59, 999);
-      filter.date = { $gte: start, $lte: end };
-    }
+    const range = await seasonDateRange(season);
+    if (range) filter.date = range;
   }
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
@@ -157,10 +164,19 @@ export const getSummary = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
-  const { dateFrom, dateTo } = req.query as { dateFrom?: string; dateTo?: string };
+  const { dateFrom, dateTo, season } = req.query as {
+    dateFrom?: string;
+    dateTo?: string;
+    season?: string;
+  };
   const matchDate: Record<string, Date> = {};
   if (dateFrom) matchDate.$gte = new Date(dateFrom);
   if (dateTo) matchDate.$lte = new Date(dateTo);
+  // Giống getAll: chọn mùa mà không nhập khoảng ngày → dùng khoảng ngày của mùa
+  if (season && !dateFrom && !dateTo) {
+    const range = await seasonDateRange(season);
+    if (range) Object.assign(matchDate, range);
+  }
 
   const dateFilter = Object.keys(matchDate).length ? { date: matchDate } : {};
   const createdByFilter = isPrivileged(req.user!.roles) ? {} : { createdBy: req.user!._id };
