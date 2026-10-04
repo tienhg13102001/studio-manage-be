@@ -16,6 +16,7 @@ import { resolveCurrentSeason } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 import { CREW_FORBIDDEN_MSG, canEditCrew, hasCrew } from '../utils/permissions';
 import { syncContractDeposit } from '../services/contractService';
+import { customerScope } from '../utils/customerScope';
 
 const USER_REF_FIELDS = 'name username';
 const SCHOOL_REF_FIELDS = 'name address';
@@ -154,6 +155,9 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
     }
     query.assignedSale = sale;
   }
+  // CTV sale chỉ thấy lớp mình tạo / phụ trách
+  const scope = customerScope(req);
+  if (scope) query.$and = [scope];
   const skip = (page - 1) * limit;
   const [data, total] = await Promise.all([
     Customer.find(query)
@@ -195,6 +199,8 @@ export const getStatusCounts = async (req: Request, res: Response): Promise<void
     }
     match.assignedSale = sale;
   }
+  const scope = customerScope(req);
+  if (scope) match.$and = [scope];
   const rows = await Customer.aggregate<{ _id: string; count: number }>([
     { $match: match },
     { $group: { _id: { $ifNull: ['$status', 'new'] }, count: { $sum: 1 } } },

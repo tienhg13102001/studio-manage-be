@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import Student from '../models/Student';
 import type { StudentResponse } from '../types/dto';
 import { sendResponse } from '../utils/response';
+import { accessibleCustomerIds, canAccessCustomer } from '../utils/customerScope';
 
 export const getAll = async (
   req: Request,
@@ -9,7 +10,17 @@ export const getAll = async (
 ): Promise<void> => {
   const { customer, search, page = '1', limit = '50' } = req.query as Record<string, string>;
   const query: Record<string, unknown> = {};
-  if (customer) query.customer = customer;
+  if (customer) {
+    if (!(await canAccessCustomer(req, customer))) {
+      sendResponse(res, 404, false, 'Not found');
+      return;
+    }
+    query.customer = customer;
+  } else {
+    // CTV sale chỉ thấy học sinh của lớp mình tạo / phụ trách
+    const ownIds = await accessibleCustomerIds(req);
+    if (ownIds) query.customer = { $in: ownIds };
+  }
   if (search) query.$text = { $search: search };
   const skip = (Number(page) - 1) * Number(limit);
   const [data, total, totalMale, totalFemale] = await Promise.all([

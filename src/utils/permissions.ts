@@ -12,6 +12,14 @@ export const CREW_FORBIDDEN_MSG = 'Chỉ quản trị viên mới được phân
 export const canEditCrew = (user: { roles?: readonly number[] } | null | undefined): boolean =>
   !!user?.roles?.some((r) => (CREW_EDITOR_ROLES as readonly number[]).includes(r));
 
+/**
+ * Cộng tác viên sale (kể cả khi kiêm Sale): chỉ xem lớp mình tạo / phụ trách, không xem thu chi.
+ * Admin không bị giới hạn. Giữ đồng bộ với frontend/src/utils/permissions.ts.
+ */
+export const isSaleCollaborator = (
+  user: { roles?: readonly number[] } | null | undefined,
+): boolean => !!user?.roles?.includes(4) && !user.roles.some((r) => r === 0 || r === 1);
+
 const idOrNull = (v: unknown): string | null => (v ? String(v) : null);
 
 /** Body gửi ekip khác rỗng (thợ chính hoặc ít nhất một thợ phụ) — dùng khi tạo lịch. */

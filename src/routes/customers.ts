@@ -3,10 +3,14 @@ import { protect } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import * as c from '../controllers/customerController';
 import * as cc from '../controllers/customerContractController';
+import { requireCustomerAccess } from '../utils/customerScope';
 
 const router = Router();
 
 router.use(protect);
+
+// CTV sale chỉ thao tác trên lớp mình tạo / phụ trách
+router.param('id', requireCustomerAccess((req) => req.params.id));
 
 router.route('/').get(asyncHandler(c.getAll)).post(asyncHandler(c.create));
 router.get('/status-counts', asyncHandler(c.getStatusCounts));

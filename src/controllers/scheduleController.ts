@@ -19,6 +19,7 @@ import {
 import { resolveSeasonForDate } from '../utils/seasonCache';
 import { sendResponse } from '../utils/response';
 import { CREW_FORBIDDEN_MSG, canEditCrew, crewChanged, hasCrew } from '../utils/permissions';
+import { accessibleCustomerIds } from '../utils/customerScope';
 
 interface ScheduleQuery {
   customer?: string;
@@ -271,6 +272,12 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   }
   const facetFilter = await buildFilter({ ...rest, status: undefined, includeCancelled: 'true' });
   if (season) facetFilter.season = toId(season);
+  // CTV sale chỉ thấy lịch của lớp mình tạo / phụ trách
+  const ownIds = await accessibleCustomerIds(req);
+  if (ownIds) {
+    filter.$and = [{ customer: { $in: ownIds } }];
+    facetFilter.$and = [{ customer: { $in: ownIds } }];
+  }
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =

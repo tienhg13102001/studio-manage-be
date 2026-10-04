@@ -6,6 +6,7 @@ import Schedule from '../models/Schedule';
 import Season from '../models/Season';
 import type { UpcomingScheduleDto } from '../types/dto';
 import { sendResponse } from '../utils/response';
+import { isSaleCollaborator } from '../utils/permissions';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1);
 const isPhotographer = (roles: number[]): boolean => roles.includes(3);
@@ -65,9 +66,13 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
     totals: Array<{ _id: string; total: number }>;
     daily: Array<{ _id: { year: number; month: number; day: number }; income: number; expense: number }>;
   }];
+  // CTV sale không được xem thu chi → bỏ qua, trả tổng 0
+  const txMatch = isSaleCollaborator(req.user)
+    ? { _id: null }
+    : { ...txFilter, date: dateRange };
   const [txFacetResult, customerCount] = await Promise.all([
     Transaction.aggregate<TxFacetResult[0]>([
-      { $match: { ...txFilter, date: dateRange } },
+      { $match: txMatch },
       {
         $facet: {
           totals: [
