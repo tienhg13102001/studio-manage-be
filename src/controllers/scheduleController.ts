@@ -349,7 +349,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
       .populate('videographer', USER_FIELDS)
       .populate('externalCrew.photographer', '_id name isActive')
       .populate('bookedBy', USER_FIELDS)
-      .sort({ shootDate: -1 })
+      .sort({ shootDate: 1, _id: 1 })
       .skip(skip)
       .limit(Number(limit))
       .lean<ScheduleResponse[]>(),
