@@ -4,6 +4,8 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 export interface IProfitScenario extends Document {
   name: string;
   package?: Types.ObjectId | null;
+  /** Lịch chụp của lớp thật (khi tính lãi cho lớp đã có lịch). */
+  schedule?: Types.ObjectId | null;
   pricePerMember: number;
   students: number;
   crewCount: number;
@@ -51,6 +53,7 @@ const profitScenarioSchema = new Schema<IProfitScenario>(
   {
     name: { type: String, required: true, trim: true },
     package: { type: Schema.Types.ObjectId, ref: 'Package', default: null },
+    schedule: { type: Schema.Types.ObjectId, ref: 'Schedule', default: null },
     pricePerMember: { type: Number, min: 0, default: 0 },
     students: { type: Number, min: 0, default: 0 },
     crewCount: { type: Number, min: 0, default: 0 },

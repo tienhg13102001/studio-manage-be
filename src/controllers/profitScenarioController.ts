@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { isValidObjectId } from 'mongoose';
 import ProfitScenario from '../models/ProfitScenario';
 import Package from '../models/Package';
+import Schedule from '../models/Schedule';
 import { sendResponse } from '../utils/response';
 
 const NUMBER_FIELDS = [
@@ -41,6 +42,11 @@ const parseBody = async (body: Record<string, unknown>) => {
   else if (typeof pkg === 'string' && isValidObjectId(pkg) && (await Package.exists({ _id: pkg })))
     value.package = pkg;
   else return { error: 'Gói chụp không tồn tại' };
+  const sch = body.schedule;
+  if (sch === '' || sch == null) value.schedule = null;
+  else if (typeof sch === 'string' && isValidObjectId(sch) && (await Schedule.exists({ _id: sch })))
+    value.schedule = sch;
+  else return { error: 'Lịch chụp không tồn tại' };
   if (body.otherCosts !== undefined && !Array.isArray(body.otherCosts)) {
     return { error: 'Chi phí khác không hợp lệ' };
   }
@@ -81,8 +87,86 @@ const parseBody = async (body: Record<string, unknown>) => {
 const USER_REF_FIELDS = 'name username';
 const PACKAGE_REF_FIELDS = 'name pricePerMember studentsPerCrew hasMv';
 
+const SCHEDULE_REF = {
+  path: 'schedule',
+  select: 'shootDate customer',
+  populate: { path: 'customer', select: 'className' },
+};
+
+type PopulatedClassSchedule = {
+  _id: unknown;
+  shootDate: Date;
+  package?: { _id: unknown } | null;
+  leadPhotographer?: unknown;
+  supportPhotographers?: unknown[];
+  videographer?: unknown;
+  externalCrew?: { role: string }[];
+  customer?: {
+    _id: unknown;
+    className: string;
+    total?: number;
+    schoolId?: { name?: string } | null;
+    contract?: {
+      package?: unknown;
+      pricePerMember?: number | null;
+      total?: number | null;
+      crewCount?: number | null;
+      videoCrewCount?: number | null;
+      printed?: { total?: number } | null;
+    } | null;
+  } | null;
+};
+
+/** Lớp đã có lịch chụp (đang hoạt động) để tính lãi theo số liệu thật. */
+export const getClasses = async (req: Request, res: Response): Promise<void> => {
+  const season = typeof req.query.season === 'string' ? req.query.season : '';
+  const filter: Record<string, unknown> = { status: 'active' };
+  if (season && isValidObjectId(season)) filter.season = season;
+  const schedules = (await Schedule.find(filter)
+    .select(
+      'shootDate package customer leadPhotographer supportPhotographers videographer externalCrew',
+    )
+    .populate({
+      path: 'customer',
+      select:
+        'className total schoolId contract.package contract.pricePerMember contract.total contract.crewCount contract.videoCrewCount contract.printed.total',
+      populate: { path: 'schoolId', select: 'name' },
+    })
+    .sort({ shootDate: -1 })
+    .limit(500)
+    .lean()) as unknown as PopulatedClassSchedule[];
+  const rows = schedules
+    .filter((s) => s.customer)
+    .map((s) => {
+      const c = s.customer!;
+      const ext = s.externalCrew ?? [];
+      const photo =
+        (s.leadPhotographer ? 1 : 0) +
+        (s.supportPhotographers?.length ?? 0) +
+        ext.filter((e) => e.role !== 'video').length;
+      const video = (s.videographer ? 1 : 0) + ext.filter((e) => e.role === 'video').length;
+      return {
+        scheduleId: s._id,
+        customerId: c._id,
+        className: c.className,
+        school: c.schoolId?.name ?? '',
+        shootDate: s.shootDate,
+        package: c.contract?.package ?? s.package?._id ?? s.package ?? null,
+        pricePerMember: c.contract?.pricePerMember ?? null,
+        contractTotal: c.contract?.total ?? null,
+        students: c.contract?.printed?.total || c.total || 0,
+        crewAssigned: photo,
+        videoAssigned: video,
+        crewCount: c.contract?.crewCount ?? null,
+        videoCrewCount: c.contract?.videoCrewCount ?? null,
+      };
+    });
+  sendResponse(res, 200, true, 'OK', rows);
+};
+
 export const getAll = async (_req: Request, res: Response): Promise<void> => {
   const rows = await ProfitScenario.find()
+    .populate(SCHEDULE_REF)
     .populate('package', PACKAGE_REF_FIELDS)
     .populate('createdBy', USER_REF_FIELDS)
     .sort({ updatedAt: -1 })
@@ -100,6 +184,7 @@ export const create = async (req: Request, res: Response): Promise<void> => {
   const row = await ProfitScenario.findById(created._id)
     .populate('package', PACKAGE_REF_FIELDS)
     .populate('createdBy', USER_REF_FIELDS)
+    .populate(SCHEDULE_REF)
     .lean();
   sendResponse(res, 201, true, 'Đã lưu kịch bản', row);
 };
@@ -120,6 +205,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   })
     .populate('package', PACKAGE_REF_FIELDS)
     .populate('createdBy', USER_REF_FIELDS)
+    .populate(SCHEDULE_REF)
     .lean();
   if (!row) {
     sendResponse(res, 404, false, 'Không tìm thấy kịch bản');
