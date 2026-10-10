@@ -9,6 +9,8 @@ const NUMBER_FIELDS = [
   ['students', 'Sĩ số'],
   ['crewCount', 'Số thợ'],
   ['crewRate', 'Tiền công / thợ'],
+  ['videoCrewCount', 'Số thợ quay'],
+  ['videoCrewRate', 'Tiền công / thợ quay'],
   ['printCostPerStudent', 'Chi phí in / học sinh'],
   ['costumeCost', 'Chi phí trang phục'],
 ] as const;
@@ -26,7 +28,10 @@ const parseBody = async (body: Record<string, unknown>) => {
   for (const [key, label] of NUMBER_FIELDS) {
     const n = toAmount(body[key]);
     if (n === null) return { error: `${label} phải là số không âm` };
-    if ((key === 'students' || key === 'crewCount') && !Number.isInteger(n)) {
+    if (
+      (key === 'students' || key === 'crewCount' || key === 'videoCrewCount') &&
+      !Number.isInteger(n)
+    ) {
       return { error: `${label} phải là số nguyên` };
     }
     value[key] = n;
@@ -48,11 +53,33 @@ const parseBody = async (body: Record<string, unknown>) => {
     if (label || amount) otherCosts.push({ label, amount });
   }
   value.otherCosts = otherCosts;
+  for (const [key, label] of [
+    ['printItems', 'In ấn'],
+    ['costumeItems', 'Trang phục'],
+    ['travelItems', 'Đi lại & ăn uống'],
+  ] as const) {
+    const raw = body[key];
+    if (raw !== undefined && !Array.isArray(raw)) return { error: `${label} không hợp lệ` };
+    if (Array.isArray(raw) && raw.length > 50) return { error: `${label}: tối đa 50 dòng` };
+    const items: { label: string; unitPrice: number; quantity: number; unit: string }[] = [];
+    for (const r of (raw as unknown[] | undefined) ?? []) {
+      const row = (r ?? {}) as Record<string, unknown>;
+      const unitPrice = toAmount(row.unitPrice);
+      const quantity = toAmount(row.quantity);
+      if (unitPrice === null || quantity === null) {
+        return { error: `${label}: đơn giá và số lượng phải là số không âm` };
+      }
+      const unit = row.unit === 'class' || row.unit === 'crew' ? row.unit : 'student';
+      const name = typeof row.label === 'string' ? row.label.trim().slice(0, 200) : '';
+      if (name || unitPrice) items.push({ label: name, unitPrice, quantity, unit });
+    }
+    value[key] = items;
+  }
   return { value };
 };
 
 const USER_REF_FIELDS = 'name username';
-const PACKAGE_REF_FIELDS = 'name pricePerMember studentsPerCrew';
+const PACKAGE_REF_FIELDS = 'name pricePerMember studentsPerCrew hasMv';
 
 export const getAll = async (_req: Request, res: Response): Promise<void> => {
   const rows = await ProfitScenario.find()
