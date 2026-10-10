@@ -42,6 +42,7 @@ export const createScheduleWithSideEffects = async (
     })
     .populate<{ leadPhotographer: Pick<IUser, 'name'> }>('leadPhotographer', 'name')
     .populate<{ supportPhotographers: Pick<IUser, 'name'>[] }>('supportPhotographers', 'name')
+    .populate('externalCrew.photographer', 'name')
     .populate<{ season: Pick<ISeason, 'name'> }>('season', 'name')
     .lean();
 
@@ -56,10 +57,24 @@ export const createScheduleWithSideEffects = async (
   let folderUrl = full?.customer?.driveFolderUrl ?? null;
   if (full) {
     try {
-      const leadName = (full.leadPhotographer as unknown as { name?: string })?.name;
+      const externalCrew = (full.externalCrew ?? []) as unknown as Array<{
+        photographer?: { name?: string } | null;
+        role: 'lead' | 'support';
+        confirmation: string;
+      }>;
+      const leadName =
+        (full.leadPhotographer as unknown as { name?: string })?.name ??
+        externalCrew.find((entry) => entry.role === 'lead' && entry.confirmation !== 'declined')
+          ?.photographer?.name;
       const supportNames = (full.supportPhotographers as unknown as { name?: string }[])
         .map((p) => p?.name)
         .filter((n): n is string => Boolean(n));
+      supportNames.push(
+        ...externalCrew
+          .filter((entry) => entry.role === 'support' && entry.confirmation !== 'declined')
+          .map((entry) => entry.photographer?.name)
+          .filter((name): name is string => Boolean(name)),
+      );
       const seasonName = (full.season as unknown as { name?: string })?.name ?? 'Chưa phân mùa';
 
       const result = await createFolderAndLog({

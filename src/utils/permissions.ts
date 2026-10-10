@@ -23,9 +23,14 @@ export const isSaleCollaborator = (
 const idOrNull = (v: unknown): string | null => (v ? String(v) : null);
 
 /** Body gửi ekip khác rỗng (thợ chính hoặc ít nhất một thợ phụ) — dùng khi tạo lịch. */
-export const hasCrew = (body: { leadPhotographer?: unknown; supportPhotographers?: unknown }) =>
+export const hasCrew = (body: {
+  leadPhotographer?: unknown;
+  supportPhotographers?: unknown;
+  externalCrew?: unknown;
+}) =>
   !!idOrNull(body.leadPhotographer) ||
-  (Array.isArray(body.supportPhotographers) && body.supportPhotographers.some(Boolean));
+  (Array.isArray(body.supportPhotographers) && body.supportPhotographers.some(Boolean)) ||
+  (Array.isArray(body.externalCrew) && body.externalCrew.length > 0);
 
 /**
  * Body cập nhật có đổi ekip so với lịch đang lưu không. Chỉ xét field client thực sự gửi
@@ -33,7 +38,7 @@ export const hasCrew = (body: { leadPhotographer?: unknown; supportPhotographers
  */
 export const crewChanged = (
   body: Record<string, unknown>,
-  prev: { leadPhotographer?: unknown; supportPhotographers?: unknown[] },
+  prev: { leadPhotographer?: unknown; supportPhotographers?: unknown[]; externalCrew?: unknown[] },
 ): boolean => {
   if (
     'leadPhotographer' in body &&
@@ -44,7 +49,10 @@ export const crewChanged = (
   if (Array.isArray(body.supportPhotographers)) {
     const next = [...new Set(body.supportPhotographers.filter(Boolean).map(String))].sort();
     const before = [...new Set((prev.supportPhotographers ?? []).map(String))].sort();
-    return next.join() !== before.join();
+    if (next.join() !== before.join()) return true;
+  }
+  if ('externalCrew' in body) {
+    return JSON.stringify(body.externalCrew) !== JSON.stringify(prev.externalCrew ?? []);
   }
   return false;
 };

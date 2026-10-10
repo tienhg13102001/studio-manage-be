@@ -128,6 +128,11 @@ export interface ScheduleDto {
   location?: string;
   leadPhotographer: string | null;
   supportPhotographers: string[];
+  externalCrew: Array<{
+    photographer: string;
+    role: 'lead' | 'support';
+    confirmation: 'pending' | 'confirmed' | 'declined';
+  }>;
   bookedBy: string | null;
   status: ScheduleStatus;
   notes?: string;
@@ -153,12 +158,17 @@ export interface ScheduleDto {
 /** Populated schedule returned by GET endpoints. */
 export interface ScheduleResponse extends Omit<
   ScheduleDto,
-  'customer' | 'package' | 'leadPhotographer' | 'supportPhotographers' | 'bookedBy'
+  'customer' | 'package' | 'leadPhotographer' | 'supportPhotographers' | 'externalCrew' | 'bookedBy'
 > {
   customer: CustomerDto;
   package: PackageDto | null;
   leadPhotographer: UserDto | null;
   supportPhotographers: UserDto[];
+  externalCrew: Array<{
+    photographer: { _id: string; name: string; isActive: boolean } | null;
+    role: 'lead' | 'support';
+    confirmation: 'pending' | 'confirmed' | 'declined';
+  }>;
   bookedBy: UserDto | null;
 }
 
@@ -294,6 +304,11 @@ export interface UpcomingScheduleDto {
   status: ScheduleDto['status'];
   customer?: Pick<CustomerDto, '_id' | 'className' | 'schoolId' | 'status'>;
   leadPhotographer?: Pick<UserDto, '_id' | 'name' | 'username'>;
+  externalCrew?: Array<{
+    photographer: { _id: string; name: string } | null;
+    role: 'lead' | 'support';
+    confirmation: 'pending' | 'confirmed' | 'declined';
+  }>;
 }
 
 export interface DashboardStats {

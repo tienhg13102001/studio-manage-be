@@ -124,20 +124,33 @@ const seasonDateRange = async (season: string): Promise<{ $gte: Date; $lte: Date
   return { $gte: start, $lte: end };
 };
 
-/** Tổng thu / chi (tiền + số giao dịch) của toàn bộ tập đã lọc. */
+/** Tổng thu / chi / chi chưa hoàn của toàn bộ tập đã lọc. */
 const filteredTotals = async (match: Record<string, unknown>) => {
   const rows = await Transaction.aggregate<{
     _id: 'income' | 'expense';
     amount: number;
     count: number;
+    pendingRefund: number;
   }>([
     { $match: match },
-    { $group: { _id: '$type', amount: { $sum: '$amount' }, count: { $sum: 1 } } },
+    {
+      $group: {
+        _id: '$type',
+        amount: { $sum: '$amount' },
+        count: { $sum: 1 },
+        pendingRefund: {
+          $sum: {
+            $cond: [{ $ne: ['$accountantRefunded', true] }, '$amount', 0],
+          },
+        },
+      },
+    },
   ]);
   const by = (t: string) => rows.find((r) => r._id === t);
   return {
     income: by('income')?.amount ?? 0,
     expense: by('expense')?.amount ?? 0,
+    pendingRefund: by('expense')?.pendingRefund ?? 0,
     incomeCount: by('income')?.count ?? 0,
     expenseCount: by('expense')?.count ?? 0,
   };

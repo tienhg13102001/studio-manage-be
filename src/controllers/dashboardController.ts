@@ -12,7 +12,11 @@ const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || 
 const isPhotographer = (roles: number[]): boolean => roles.includes(3);
 
 export const getStats = async (req: Request, res: Response): Promise<void> => {
-  const { userId, months: monthsStr, season } = req.query as { userId?: string; months?: string; season?: string };
+  const {
+    userId,
+    months: monthsStr,
+    season,
+  } = req.query as { userId?: string; months?: string; season?: string };
   const privileged = isPrivileged(req.user!.roles);
   const userRoles = req.user!.roles as number[];
 
@@ -62,22 +66,24 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
   }
 
   // Merge totals + daily into one $facet aggregation, and run it in parallel with customerCount.
-  type TxFacetResult = [{
-    totals: Array<{ _id: string; total: number }>;
-    daily: Array<{ _id: { year: number; month: number; day: number }; income: number; expense: number }>;
-  }];
+  type TxFacetResult = [
+    {
+      totals: Array<{ _id: string; total: number }>;
+      daily: Array<{
+        _id: { year: number; month: number; day: number };
+        income: number;
+        expense: number;
+      }>;
+    },
+  ];
   // CTV sale không được xem thu chi → bỏ qua, trả tổng 0
-  const txMatch = isSaleCollaborator(req.user)
-    ? { _id: null }
-    : { ...txFilter, date: dateRange };
+  const txMatch = isSaleCollaborator(req.user) ? { _id: null } : { ...txFilter, date: dateRange };
   const [txFacetResult, customerCount] = await Promise.all([
     Transaction.aggregate<TxFacetResult[0]>([
       { $match: txMatch },
       {
         $facet: {
-          totals: [
-            { $group: { _id: '$type', total: { $sum: '$amount' } } },
-          ],
+          totals: [{ $group: { _id: '$type', total: { $sum: '$amount' } } }],
           daily: [
             {
               $group: {
@@ -153,6 +159,7 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
           populate: { path: 'schoolId', select: 'name address' },
         })
         .populate('leadPhotographer', 'name username')
+        .populate('externalCrew.photographer', 'name')
         .sort({ shootDate: 1 })
         .limit(10)
         .lean<UpcomingScheduleDto[]>(),
