@@ -19,6 +19,7 @@ import externalPhotographerRoutes from './routes/externalPhotographers';
 import telegramRoutes from './routes/telegram';
 import seasonController from './routes/season';
 import dashboardRoutes from './routes/dashboard';
+import profitScenarioRoutes from './routes/profitScenarios';
 import { normalizeScheduleStatus } from './utils/normalizeScheduleStatus';
 import { migrateSchoolsOnStartup } from './utils/migrateSchools';
 import { migrateContractsOnStartup } from './utils/migrateContractsToCustomer';
@@ -47,6 +48,7 @@ app.use('/api/feedbacks', feedbackRoutes);
 app.use('/api/telegram', telegramRoutes);
 app.use('/api/seasons', seasonController);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/profit-scenarios', profitScenarioRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
