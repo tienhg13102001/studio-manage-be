@@ -30,6 +30,17 @@ export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
 };
 
 /** Hợp đồng của lớp (tạo qua Apps Script Code_create_HD.gs, lưu bằng PUT /customers/:id/contract). */
+export interface IContractPrinted {
+  className?: string;
+  school?: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactAddress?: string;
+  total?: number;
+  totalMale?: number;
+  totalFemale?: number;
+}
+
 export interface ICustomerContract {
   /** Link Google Doc */
   url: string;
@@ -53,11 +64,27 @@ export interface ICustomerContract {
   depositSyncedAt?: Date | null;
   /** Ngày cọc đang in trên hợp đồng; null = để trống. */
   depositDate?: Date | null;
+  /** Thông tin lớp đã in trên hợp đồng — so với lớp hiện tại để biết hợp đồng cần cập nhật. */
+  printed?: IContractPrinted | null;
   createdAt?: Date | null;
   createdBy?: Types.ObjectId | null;
   /** Lịch chụp nguồn khi được chuyển từ dữ liệu cũ (migration). */
   migratedFromSchedule?: Types.ObjectId | null;
 }
+
+const contractPrintedSchema = new Schema<IContractPrinted>(
+  {
+    className: String,
+    school: String,
+    contactName: String,
+    contactPhone: String,
+    contactAddress: String,
+    total: Number,
+    totalMale: Number,
+    totalFemale: Number,
+  },
+  { _id: false },
+);
 
 const contractSchema = new Schema<ICustomerContract>(
   {
@@ -75,6 +102,7 @@ const contractSchema = new Schema<ICustomerContract>(
     depositAmount: { type: Number, default: null },
     depositSyncedAt: { type: Date, default: null },
     depositDate: { type: Date, default: null },
+    printed: { type: contractPrintedSchema, default: null },
     createdAt: { type: Date, default: null },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     migratedFromSchedule: { type: Schema.Types.ObjectId, ref: 'Schedule', default: null },

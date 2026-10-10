@@ -168,6 +168,57 @@ function handleUpdateDeposit(data) {
   }
 }
 
+/** File hợp đồng phải nằm trong thư mục gốc hợp đồng (gốc/năm/ngày) — chặn ghi đè file khác. */
+function isContractFile(file, rootFolderId) {
+  let level = [file];
+  for (let depth = 0; depth < 4; depth++) {
+    let next = [];
+    for (let i = 0; i < level.length; i++) {
+      let parents = level[i].getParents();
+      while (parents.hasNext()) {
+        let p = parents.next();
+        if (p.getId() === rootFolderId) return true;
+        next.push(p);
+      }
+    }
+    if (!next.length) return false;
+    level = next;
+  }
+  return false;
+}
+
+/**
+ * Cập nhật hợp đồng tại chỗ (giữ link): xoá Named Range cũ, nạp lại toàn bộ nội dung từ mẫu
+ * vào body rồi để luồng điền dữ liệu chạy như khi tạo mới. Sửa tay trong file sẽ mất
+ * (Docs vẫn giữ lịch sử phiên bản).
+ */
+function resetBodyFromTemplate(doc, templateId) {
+  doc.getNamedRanges().forEach(function (nr) {
+    nr.remove();
+  });
+  let body = doc.getBody();
+  let tpl = DocumentApp.openById(templateId).getBody();
+  let oldCount = body.getNumChildren();
+  let T = DocumentApp.ElementType;
+  for (let i = 0; i < tpl.getNumChildren(); i++) {
+    let el = tpl.getChild(i).copy();
+    let type = el.getType();
+    if (type === T.PARAGRAPH) body.appendParagraph(el.asParagraph());
+    else if (type === T.LIST_ITEM) body.appendListItem(el.asListItem());
+    else if (type === T.TABLE) body.appendTable(el.asTable());
+  }
+  // Xoá nội dung cũ (nằm trước phần vừa chèn) từ dưới lên
+  for (let i = oldCount - 1; i >= 0; i--) {
+    let child = body.getChild(i);
+    try {
+      child.removeFromParent();
+    } catch (err) {
+      // Docs không cho xoá một số đoạn (VD đoạn cuối trước bảng) → chỉ xoá chữ
+      if (child.getType() === T.PARAGRAPH || child.getType() === T.LIST_ITEM) child.asText().setText("");
+    }
+  }
+}
+
 function doPost(e) {
   try {
     // 1. Nhận và Parse dữ liệu JSON
@@ -246,18 +297,30 @@ function doPost(e) {
       formattedDate = shootDateStr.split("-").reverse().join("/");
     }
 
-    // 3. Xử lý thư mục lưu trữ
-    let rootFolder = DriveApp.getFolderById(ROOT_FOLDER_ID);
-    let yearFolder = getOrCreateFolder(rootFolder, yearName);
-    let dayFolder = getOrCreateFolder(yearFolder, dayName);
-
-    // 4. Nhân bản file mẫu
-    let templateFile = DriveApp.getFileById(TEMPLATE_ID);
     let newFileName = "Hợp đồng - " + className + " " + school + " - " + contactName;
-    let copiedFile = templateFile.makeCopy(newFileName, dayFolder);
+    let doc;
+    if (data.documentId) {
+      // 3'. Cập nhật hợp đồng đã tạo (giữ nguyên link)
+      let existing = DriveApp.getFileById(data.documentId);
+      if (!isContractFile(existing, ROOT_FOLDER_ID)) {
+        return jsonOut({ status: "error", message: "Lỗi: file không thuộc thư mục hợp đồng" });
+      }
+      existing.setName(newFileName);
+      doc = DocumentApp.openById(data.documentId);
+      resetBodyFromTemplate(doc, TEMPLATE_ID);
+    } else {
+      // 3. Xử lý thư mục lưu trữ
+      let rootFolder = DriveApp.getFolderById(ROOT_FOLDER_ID);
+      let yearFolder = getOrCreateFolder(rootFolder, yearName);
+      let dayFolder = getOrCreateFolder(yearFolder, dayName);
+
+      // 4. Nhân bản file mẫu
+      let templateFile = DriveApp.getFileById(TEMPLATE_ID);
+      let copiedFile = templateFile.makeCopy(newFileName, dayFolder);
+      doc = DocumentApp.openById(copiedFile.getId());
+    }
 
     // 5. Thay thế từ khóa trong Docs
-    let doc = DocumentApp.openById(copiedFile.getId());
     let body = doc.getBody();
 
     body.replaceText("{{contactName}}", contactName);
@@ -299,7 +362,7 @@ function doPost(e) {
     // 6. Trả về kết quả
     let response = {
       "status": "success",
-      "message": "Đã tạo hợp đồng thành công!",
+      "message": data.documentId ? "Đã cập nhật hợp đồng!" : "Đã tạo hợp đồng thành công!",
       "folder_path": yearName + "/" + dayName,
       "document_url": doc.getUrl(),
       "documentId": doc.getId(),

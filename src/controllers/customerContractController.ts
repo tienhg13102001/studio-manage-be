@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import mongoose, { Types } from 'mongoose';
 import Customer, {
+  type IContractPrinted,
   CUSTOMER_STATUS_LABELS,
   type CustomerStatus,
   type ICustomer,
@@ -28,6 +29,14 @@ const CONTRACT_STATUSES: CustomerStatus[] = [
 ];
 
 const DOC_ID_RE = /^[\w-]{20,}$/;
+const PRINTED_TEXT_FIELDS = [
+  'className',
+  'school',
+  'contactName',
+  'contactPhone',
+  'contactAddress',
+] as const;
+const PRINTED_COUNT_FIELDS = ['total', 'totalMale', 'totalFemale'] as const;
 const CONTRACT_CONFLICT_MSG = 'Hợp đồng vừa được người khác cập nhật — tải lại';
 const MAX_EXTRA_SERVICES = 50;
 
@@ -129,6 +138,27 @@ const parseContractBody = (body: Record<string, unknown>): ICustomerContract | s
     depositSyncedAt = toDate(body.depositSyncedAt);
     if (!depositSyncedAt) return 'depositSyncedAt không hợp lệ';
   }
+  // Thông tin lớp đã in trên hợp đồng (chuỗi ≤ 500 ký tự, số không âm)
+  let printed: IContractPrinted | null = null;
+  if (body.printed !== undefined && body.printed !== null) {
+    if (typeof body.printed !== 'object' || Array.isArray(body.printed)) {
+      return 'printed không hợp lệ';
+    }
+    const raw = body.printed as Record<string, unknown>;
+    printed = {};
+    for (const k of PRINTED_TEXT_FIELDS) {
+      const v = raw[k];
+      if (v === undefined || v === null) continue;
+      if (typeof v !== 'string') return `printed.${k} không hợp lệ`;
+      printed[k] = v.slice(0, 500);
+    }
+    for (const k of PRINTED_COUNT_FIELDS) {
+      const v = raw[k];
+      if (v === undefined || v === null) continue;
+      if (!isCount(v)) return `printed.${k} không hợp lệ`;
+      printed[k] = v;
+    }
+  }
   let depositDate: Date | null = null;
   if (body.depositDate !== undefined && body.depositDate !== null) {
     depositDate = toDate(body.depositDate);
@@ -173,6 +203,7 @@ const parseContractBody = (body: Record<string, unknown>): ICustomerContract | s
     depositAmount: depositAmount as number | null,
     depositSyncedAt,
     depositDate,
+    printed,
   };
 };
 
@@ -218,7 +249,11 @@ export const saveContract = async (req: Request, res: Response): Promise<void> =
     sendResponse(res, 409, false, CONTRACT_CONFLICT_MSG);
     return;
   }
-  if (previousUrl && !admin) {
+  // Cập nhật tại chỗ (cùng file Google Docs) → người phụ trách lớp được làm; tạo file mới → chỉ admin
+  const rawDocId = (req.body as { docId?: unknown } | undefined)?.docId;
+  const inPlace =
+    !!previousUrl && !!customer.contract?.docId && rawDocId === customer.contract.docId;
+  if (previousUrl && !admin && !inPlace) {
     sendResponse(res, 403, false, 'Lớp đã có hợp đồng — chỉ admin mới được tạo lại');
     return;
   }
@@ -257,7 +292,11 @@ export const saveContract = async (req: Request, res: Response): Promise<void> =
     return;
   }
 
-  const note = previousUrl ? `Tạo lại hợp đồng (hợp đồng cũ: ${previousUrl})` : 'Đã tạo hợp đồng';
+  const note = inPlace
+    ? 'Cập nhật hợp đồng theo thông tin lớp mới nhất'
+    : previousUrl
+      ? `Tạo lại hợp đồng (hợp đồng cũ: ${previousUrl})`
+      : 'Đã tạo hợp đồng';
   try {
     // Có hợp đồng → lớp đang "Đã cọc" tự chuyển sang "Chưa chụp"
     const moved = await Customer.updateOne(

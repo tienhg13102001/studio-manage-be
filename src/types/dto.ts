@@ -77,6 +77,16 @@ export interface CustomerContractDto {
   depositAmount?: number | null;
   depositSyncedAt?: string | null;
   depositDate?: string | null;
+  printed?: {
+    className?: string;
+    school?: string;
+    contactName?: string;
+    contactPhone?: string;
+    contactAddress?: string;
+    total?: number;
+    totalMale?: number;
+    totalFemale?: number;
+  } | null;
   createdAt?: string | null;
   createdBy?: string | null;
   migratedFromSchedule?: string | null;
