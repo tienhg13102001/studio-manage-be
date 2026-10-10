@@ -13,6 +13,8 @@ export interface FolderLogPayload {
   location?: string;
   leadPhotographer?: string;
   supportPhotographers?: string[];
+  /** Tên thợ quay MV (nội bộ hoặc thợ ngoài role 'video'); Apps Script cũ bỏ qua field này. */
+  videographer?: string;
   contractUrl?: string;
   status?: string;
 }

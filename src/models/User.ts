@@ -2,7 +2,8 @@ import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 // 0: Superadmin | 1: Admin | 2: Sale | 3: Thợ chụp ảnh | 4: Cộng tác viên sale | 5: Kế toán
-export type UserRole = 0 | 1 | 2 | 3 | 4 | 5;
+// 6: Thợ quay phim (quay MV kỷ yếu)
+export type UserRole = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   0: 'Superadmin',
@@ -11,6 +12,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   3: 'Thợ chụp ảnh',
   4: 'Cộng tác viên sale',
   5: 'Kế toán',
+  6: 'Thợ quay phim',
 };
 
 export interface IUser extends Document {
@@ -31,7 +33,7 @@ const userSchema = new Schema<IUser>(
     username: { type: String, required: true, unique: true, trim: true },
     name: { type: String, trim: true },
     password: { type: String, required: true, select: false },
-    roles: { type: [{ type: Number, enum: [0, 1, 2, 3, 4, 5] }], default: [2] },
+    roles: { type: [{ type: Number, enum: [0, 1, 2, 3, 4, 5, 6] }], default: [2] },
     isActive: { type: Boolean, default: true },
     telegramId: { type: String, default: null, sparse: true },
     telegramUsername: { type: String, default: null },

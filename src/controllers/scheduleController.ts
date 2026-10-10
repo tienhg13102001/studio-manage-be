@@ -5,9 +5,12 @@ import { Types, isValidObjectId } from 'mongoose';
 import Schedule, {
   EXTERNAL_CREW_CONFIRMATIONS,
   SCHEDULE_STATUSES,
+  EXTERNAL_CREW_ROLES,
+  type ExternalCrewRole,
   type IExternalCrewAssignment,
 } from '../models/Schedule';
 import ExternalPhotographer from '../models/ExternalPhotographer';
+import User from '../models/User';
 import Customer, { CUSTOMER_STATUSES, type CustomerStatus } from '../models/Customer';
 import type { ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
@@ -40,7 +43,7 @@ interface ScheduleQuery {
   page?: string;
   limit?: string;
   season?: string;
-  /** Lịch có thợ này trong ekip (thợ chính hoặc thợ phụ). */
+  /** Lịch có thợ này trong ekip (thợ chính, thợ phụ hoặc thợ quay). */
   photographer?: string;
 }
 
@@ -126,7 +129,7 @@ const buildFilter = async (q: ScheduleQuery) => {
       };
     } else {
       const id = toId(q.photographer);
-      filter.$or = [{ leadPhotographer: id }, { supportPhotographers: id }];
+      filter.$or = [{ leadPhotographer: id }, { supportPhotographers: id }, { videographer: id }];
     }
   }
   return filter;
@@ -151,9 +154,10 @@ interface CrewScheduleRow {
   customer?: { className?: string } | null;
   leadPhotographer?: { _id: unknown; name?: string; username?: string } | null;
   supportPhotographers?: { _id: unknown; name?: string; username?: string }[];
+  videographer?: { _id: unknown; name?: string; username?: string } | null;
   externalCrew?: Array<{
     photographer?: { _id: unknown; name?: string } | null;
-    role: 'lead' | 'support';
+    role: ExternalCrewRole;
     confirmation: 'pending' | 'confirmed' | 'declined';
   }>;
 }
@@ -173,6 +177,7 @@ const findCrewSchedules = (
               $or: [
                 { leadPhotographer: { $in: crew.internalIds } },
                 { supportPhotographers: { $in: crew.internalIds } },
+                { videographer: { $in: crew.internalIds } },
                 { 'externalCrew.photographer': { $in: crew.externalIds } },
               ],
             },
@@ -181,18 +186,22 @@ const findCrewSchedules = (
     ],
   })
     .select(
-      'customer shootDate startTime endTime leadPhotographer supportPhotographers externalCrew',
+      'customer shootDate startTime endTime leadPhotographer supportPhotographers videographer externalCrew',
     )
     .populate('customer', 'className')
     .populate('leadPhotographer', '_id name username')
     .populate('supportPhotographers', '_id name username')
+    .populate('videographer', '_id name username')
     .populate('externalCrew.photographer', '_id name')
     .lean<CrewScheduleRow[]>();
 
 const crewOf = (
-  s: Pick<CrewScheduleRow, 'leadPhotographer' | 'supportPhotographers' | 'externalCrew'>,
+  s: Pick<
+    CrewScheduleRow,
+    'leadPhotographer' | 'supportPhotographers' | 'videographer' | 'externalCrew'
+  >,
 ) => [
-  ...[s.leadPhotographer, ...(s.supportPhotographers ?? [])]
+  ...[s.leadPhotographer, ...(s.supportPhotographers ?? []), s.videographer]
     .filter((u): u is NonNullable<CrewScheduleRow['leadPhotographer']> => Boolean(u))
     .map((u) => ({ id: String(u._id), name: u.name ?? u.username ?? '', external: false })),
   ...(s.externalCrew ?? [])
@@ -213,7 +222,7 @@ const attachConflicts = async (items: ScheduleResponse[]) => {
   const internalIds = [
     ...new Set(
       active.flatMap((s) =>
-        [s.leadPhotographer, ...(s.supportPhotographers ?? [])]
+        [s.leadPhotographer, ...(s.supportPhotographers ?? []), s.videographer]
           .filter(Boolean)
           .map((u) => String(u!._id)),
       ),
@@ -329,7 +338,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit assignedSale driveFolderUrl contract.url contract.docId contract.crewCount createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit assignedSale driveFolderUrl contract.url contract.docId contract.crewCount contract.videoCrewCount createdAt';
   const [data, total, statusCounts] = await Promise.all([
     Schedule.find(filter)
       .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
@@ -337,6 +346,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
       .populate('costumes')
       .populate('leadPhotographer', USER_FIELDS)
       .populate('supportPhotographers', USER_FIELDS)
+      .populate('videographer', USER_FIELDS)
       .populate('externalCrew.photographer', '_id name isActive')
       .populate('bookedBy', USER_FIELDS)
       .sort({ shootDate: -1 })
@@ -385,6 +395,7 @@ export const getBusy = async (req: Request, res: Response): Promise<void> => {
       endTime: s.endTime,
       leadPhotographer: s.leadPhotographer ? String(s.leadPhotographer._id) : null,
       supportPhotographers: (s.supportPhotographers ?? []).map((u) => String(u._id)),
+      videographer: s.videographer ? String(s.videographer._id) : null,
       externalCrew: (s.externalCrew ?? [])
         .filter((entry) => entry.photographer)
         .map((entry) => ({
@@ -399,7 +410,7 @@ export const getBusy = async (req: Request, res: Response): Promise<void> => {
 export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId contract.crewCount createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId contract.crewCount contract.videoCrewCount createdAt';
   if (!isValidObjectId(req.params.customer)) {
     sendResponse(res, 400, false, 'customer không hợp lệ');
     return;
@@ -413,6 +424,7 @@ export const getByCustomer = async (req: Request, res: Response): Promise<void> 
         .populate('costumes')
         .populate('leadPhotographer', USER_FIELDS)
         .populate('supportPhotographers', USER_FIELDS)
+        .populate('videographer', USER_FIELDS)
         .populate('externalCrew.photographer', '_id name isActive')
         .populate('bookedBy', USER_FIELDS)
         .lean<ScheduleResponse | null>()
@@ -423,13 +435,14 @@ export const getByCustomer = async (req: Request, res: Response): Promise<void> 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId contract.crewCount createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId contract.crewCount contract.videoCrewCount createdAt';
   const schedule = await Schedule.findById(req.params.id)
     .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
     .populate({ path: 'package', populate: { path: 'costumes' } })
     .populate('costumes')
     .populate('leadPhotographer', USER_FIELDS)
     .populate('supportPhotographers', USER_FIELDS)
+    .populate('videographer', USER_FIELDS)
     .populate('externalCrew.photographer', '_id name isActive')
     .populate('bookedBy', USER_FIELDS)
     .lean<ScheduleResponse | null>();
@@ -467,18 +480,41 @@ const hasLegacyFields = (body: unknown) =>
 
 const INVALID_STATUS_MSG = 'Trạng thái lịch chụp không hợp lệ (chỉ active hoặc cancelled)';
 
-/** Validate the whole external crew whenever a schedule is created or its crew changes. */
+/**
+ * Validate the whole external crew (and the internal videographer) whenever a schedule is created
+ * or its crew changes. Mỗi lịch tối đa 1 thợ quay: `videographer` nội bộ HOẶC 1 thợ ngoài role
+ * 'video'; thợ ngoài role 'video' không tính vào luật một thợ chính.
+ */
 const validateExternalCrew = async (
   body: Record<string, unknown>,
-  previous?: { leadPhotographer?: unknown; externalCrew?: IExternalCrewAssignment[] } | null,
+  previous?: {
+    leadPhotographer?: unknown;
+    supportPhotographers?: unknown[];
+    videographer?: unknown;
+    externalCrew?: IExternalCrewAssignment[];
+  } | null,
 ): Promise<string | null> => {
+  const videographerSupplied = Object.prototype.hasOwnProperty.call(body, 'videographer');
+  if (videographerSupplied) {
+    const v = body.videographer;
+    if (v === null || v === '' || v === undefined) {
+      body.videographer = null;
+    } else if (typeof v !== 'string' || !isValidObjectId(v)) {
+      return 'Thợ quay không hợp lệ';
+    } else if (v !== String(previous?.videographer ?? '')) {
+      // Thợ quay mới phải là người dùng đang hoạt động có vai trò "Thợ quay phim"
+      const ok = await User.exists({ _id: v, roles: 6, isActive: true });
+      if (!ok) return 'Thợ quay phải là người dùng có vai trò Thợ quay phim';
+    }
+  }
+
   const supplied = Object.prototype.hasOwnProperty.call(body, 'externalCrew');
   if (supplied && !Array.isArray(body.externalCrew)) return 'Danh sách thợ ngoài không hợp lệ';
   const raw = supplied ? (body.externalCrew as unknown[]) : (previous?.externalCrew ?? []);
   if (raw.length > 50) return 'Một lịch có tối đa 50 thợ ngoài';
   const normalized: Array<{
     photographer: string;
-    role: 'lead' | 'support';
+    role: ExternalCrewRole;
     confirmation: string;
   }> = [];
   for (const item of raw) {
@@ -489,12 +525,16 @@ const validateExternalCrew = async (
     const confirmation = entry.confirmation ?? 'pending';
     if (
       !isValidObjectId(photographer) ||
-      (role !== 'lead' && role !== 'support') ||
+      !(EXTERNAL_CREW_ROLES as readonly unknown[]).includes(role) ||
       !(EXTERNAL_CREW_CONFIRMATIONS as readonly unknown[]).includes(confirmation)
     ) {
       return 'Thông tin phân công thợ ngoài không hợp lệ';
     }
-    normalized.push({ photographer, role, confirmation: String(confirmation) });
+    normalized.push({
+      photographer,
+      role: role as ExternalCrewRole,
+      confirmation: String(confirmation),
+    });
   }
   const ids = normalized.map((entry) => entry.photographer);
   if (new Set(ids).size !== ids.length) return 'Một thợ ngoài chỉ được phân công một lần';
@@ -504,6 +544,23 @@ const validateExternalCrew = async (
     : previous?.leadPhotographer;
   if (externalLeads > 1 || (externalLeads && internalLead)) {
     return 'Chỉ được chọn một thợ chính trong hoặc ngoài hệ thống';
+  }
+  const externalVideos = normalized.filter((entry) => entry.role === 'video').length;
+  const internalVideographer = videographerSupplied ? body.videographer : previous?.videographer;
+  if (externalVideos > 1 || (externalVideos && internalVideographer)) {
+    return 'Chỉ được chọn một thợ quay trong hoặc ngoài hệ thống';
+  }
+  if (internalVideographer) {
+    // Một người không thể vừa chụp vừa quay trong cùng buổi
+    const supports = Object.prototype.hasOwnProperty.call(body, 'supportPhotographers')
+      ? body.supportPhotographers
+      : previous?.supportPhotographers;
+    const photographers = [internalLead, ...(Array.isArray(supports) ? supports : [])]
+      .filter(Boolean)
+      .map(String);
+    if (photographers.includes(String(internalVideographer))) {
+      return 'Thợ quay không được đồng thời là thợ chụp của buổi này';
+    }
   }
   if (supplied && ids.length) {
     const existing = await ExternalPhotographer.find({ _id: { $in: ids } })
@@ -625,6 +682,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
       // "được gỡ khỏi lịch chụp".
       const leadProvided = 'leadPhotographer' in req.body;
       const supportsProvided = Array.isArray(req.body?.supportPhotographers);
+      const videographerProvided = 'videographer' in req.body;
 
       const prevLead = prevSchedule.leadPhotographer?.toString() ?? null;
       const newLead = leadProvided
@@ -638,21 +696,26 @@ export const update = async (req: Request, res: Response): Promise<void> => {
         ? req.body.supportPhotographers.map(String)
         : prevSupports;
 
-      // Thợ mới được thêm vào (chưa có trong lịch trước)
-      const addedLead =
-        newLead && newLead !== prevLead && !prevSupports.includes(newLead) ? [newLead] : [];
-      const addedSupports = newSupports.filter(
-        (id) => id !== prevLead && !prevSupports.includes(id),
+      // Thợ quay nội bộ được tính như một thợ phụ
+      const prevVideo = prevSchedule.videographer?.toString() ?? null;
+      const newVideo = videographerProvided
+        ? req.body.videographer
+          ? String(req.body.videographer)
+          : null
+        : prevVideo;
+
+      const prevCrew = new Set(
+        [prevLead, ...prevSupports, prevVideo].filter((id): id is string => Boolean(id)),
       );
-      const addedIds = [...new Set([...addedLead, ...addedSupports])];
+      const newCrew = new Set(
+        [newLead, ...newSupports, newVideo].filter((id): id is string => Boolean(id)),
+      );
+
+      // Thợ mới được thêm vào (chưa có trong lịch trước)
+      const addedIds = [...newCrew].filter((id) => !prevCrew.has(id));
 
       // Thợ bị gỡ ra
-      const removedLead =
-        prevLead && prevLead !== newLead && !newSupports.includes(prevLead) ? [prevLead] : [];
-      const removedSupports = prevSupports.filter(
-        (id) => id !== newLead && !newSupports.includes(id),
-      );
-      const removedIds = [...new Set([...removedLead, ...removedSupports])];
+      const removedIds = [...prevCrew].filter((id) => !newCrew.has(id));
 
       if (addedIds.length) {
         const text =
@@ -679,7 +742,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
           : '❌ <b>Lịch chụp đã bị huỷ</b>';
         const text = `${title}\n` + `👥 ${classSchool}\n` + `📆 ${dateStr}${timeStr}${locationStr}`;
 
-        const currentIds = [full.leadPhotographer, ...full.supportPhotographers]
+        const currentIds = [full.leadPhotographer, ...full.supportPhotographers, full.videographer]
           .filter(Boolean)
           .map(String);
         if (currentIds.length) await notifyUsers(currentIds, text);
@@ -727,6 +790,7 @@ export const exportContract = async (req: Request, res: Response): Promise<void>
     })
     .populate<{ leadPhotographer: IUser }>('leadPhotographer', 'username name')
     .populate<{ supportPhotographers: IUser[] }>('supportPhotographers', 'username name')
+    .populate<{ videographer: IUser | null }>('videographer', 'username name')
     .populate('externalCrew.photographer', 'name');
 
   if (!schedule) {
@@ -737,9 +801,10 @@ export const exportContract = async (req: Request, res: Response): Promise<void>
   const customer = schedule.customer as unknown as ICustomer;
   const lead = schedule.leadPhotographer as unknown as IUser | null;
   const supports = (schedule.supportPhotographers as unknown as IUser[]) ?? [];
+  const videographer = schedule.videographer as unknown as IUser | null;
   const externalCrew = schedule.externalCrew as unknown as Array<{
     photographer?: { name?: string } | null;
-    role: 'lead' | 'support';
+    role: ExternalCrewRole;
     confirmation: string;
   }>;
   const leadName =
@@ -754,6 +819,11 @@ export const exportContract = async (req: Request, res: Response): Promise<void>
       .map((entry) => entry.photographer?.name)
       .filter((name): name is string => Boolean(name)),
   ];
+
+  const videographerName =
+    (videographer && (videographer.name ?? videographer.username)) ??
+    externalCrew.find((entry) => entry.role === 'video' && entry.confirmation !== 'declined')
+      ?.photographer?.name;
 
   const formatDate = (d: Date | string) => {
     const date = new Date(d);
@@ -820,6 +890,7 @@ export const exportContract = async (req: Request, res: Response): Promise<void>
     ['Địa điểm', schedule.location ?? '—'],
     ['Thợ leader', leadName],
     ['Thợ support', supportNames.length ? supportNames.join(', ') : '—'],
+    ...(videographerName ? [['Thợ quay', videographerName] as [string, string]] : []),
     ['Số lượng học sinh', String(customer?.total ?? '—')],
   ];
 

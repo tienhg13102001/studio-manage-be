@@ -10,7 +10,7 @@
 import type { CustomerStatus } from '../models/Customer';
 import type { ScheduleStatus } from '../models/Schedule';
 
-export type UserRole = 0 | 1 | 2 | 3 | 4 | 5;
+export type UserRole = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface UserDto {
   _id: string;
@@ -71,6 +71,8 @@ export interface CustomerContractDto {
   extraServices?: ExtraServiceDto[];
   crewCount?: number | null;
   crewCountSystem?: number | null;
+  /** Số thợ quay MV in trên hợp đồng (gói có MV) */
+  videoCrewCount?: number | null;
   /** Tiền cọc đang in; null = để trống "………" */
   depositAmount?: number | null;
   depositSyncedAt?: string | null;
@@ -97,6 +99,8 @@ export interface PackageDto {
   editingScope?: 'full' | 'partial';
   deliveryDays?: number;
   studentsPerCrew?: number;
+  /** Gói có quay MV kỷ yếu → mỗi lịch cần đúng 1 thợ quay */
+  hasMv?: boolean;
   description?: string;
   createdAt?: string;
 }
@@ -128,9 +132,11 @@ export interface ScheduleDto {
   location?: string;
   leadPhotographer: string | null;
   supportPhotographers: string[];
+  /** Thợ quay MV nội bộ (role 6); loại trừ với thợ ngoài role 'video' */
+  videographer?: string | null;
   externalCrew: Array<{
     photographer: string;
-    role: 'lead' | 'support';
+    role: 'lead' | 'support' | 'video';
     confirmation: 'pending' | 'confirmed' | 'declined';
   }>;
   bookedBy: string | null;
@@ -158,15 +164,22 @@ export interface ScheduleDto {
 /** Populated schedule returned by GET endpoints. */
 export interface ScheduleResponse extends Omit<
   ScheduleDto,
-  'customer' | 'package' | 'leadPhotographer' | 'supportPhotographers' | 'externalCrew' | 'bookedBy'
+  | 'customer'
+  | 'package'
+  | 'leadPhotographer'
+  | 'supportPhotographers'
+  | 'videographer'
+  | 'externalCrew'
+  | 'bookedBy'
 > {
   customer: CustomerDto;
   package: PackageDto | null;
   leadPhotographer: UserDto | null;
   supportPhotographers: UserDto[];
+  videographer?: UserDto | null;
   externalCrew: Array<{
     photographer: { _id: string; name: string; isActive: boolean } | null;
-    role: 'lead' | 'support';
+    role: 'lead' | 'support' | 'video';
     confirmation: 'pending' | 'confirmed' | 'declined';
   }>;
   bookedBy: UserDto | null;
@@ -304,9 +317,10 @@ export interface UpcomingScheduleDto {
   status: ScheduleDto['status'];
   customer?: Pick<CustomerDto, '_id' | 'className' | 'schoolId' | 'status'>;
   leadPhotographer?: Pick<UserDto, '_id' | 'name' | 'username'>;
+  videographer?: Pick<UserDto, '_id' | 'name' | 'username'> | null;
   externalCrew?: Array<{
     photographer: { _id: string; name: string } | null;
-    role: 'lead' | 'support';
+    role: 'lead' | 'support' | 'video';
     confirmation: 'pending' | 'confirmed' | 'declined';
   }>;
 }

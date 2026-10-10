@@ -1,5 +1,5 @@
 import type { Types } from 'mongoose';
-import Schedule, { ISchedule } from '../models/Schedule';
+import Schedule, { ISchedule, type ExternalCrewRole } from '../models/Schedule';
 import Customer, { CUSTOMER_STATUS_LABELS, type ICustomer } from '../models/Customer';
 import type { IUser } from '../models/User';
 import type { ISeason } from '../models/Season';
@@ -42,13 +42,17 @@ export const createScheduleWithSideEffects = async (
     })
     .populate<{ leadPhotographer: Pick<IUser, 'name'> }>('leadPhotographer', 'name')
     .populate<{ supportPhotographers: Pick<IUser, 'name'>[] }>('supportPhotographers', 'name')
+    .populate<{ videographer: Pick<IUser, 'name' | 'username'> | null }>(
+      'videographer',
+      'name username',
+    )
     .populate('externalCrew.photographer', 'name')
     .populate<{ season: Pick<ISeason, 'name'> }>('season', 'name')
     .lean();
 
   const dateStr = new Date(schedule.shootDate).toLocaleDateString('vi-VN');
   const ids = full
-    ? [full.leadPhotographer, ...full.supportPhotographers]
+    ? [full.leadPhotographer, ...full.supportPhotographers, full.videographer]
         .filter(Boolean)
         .map((p) => String((p as { _id?: unknown })?._id ?? p))
     : [];
@@ -59,7 +63,7 @@ export const createScheduleWithSideEffects = async (
     try {
       const externalCrew = (full.externalCrew ?? []) as unknown as Array<{
         photographer?: { name?: string } | null;
-        role: 'lead' | 'support';
+        role: ExternalCrewRole;
         confirmation: string;
       }>;
       const leadName =
@@ -75,6 +79,11 @@ export const createScheduleWithSideEffects = async (
           .map((entry) => entry.photographer?.name)
           .filter((name): name is string => Boolean(name)),
       );
+      const videographerName =
+        full.videographer?.name ??
+        full.videographer?.username ??
+        externalCrew.find((entry) => entry.role === 'video' && entry.confirmation !== 'declined')
+          ?.photographer?.name;
       const seasonName = (full.season as unknown as { name?: string })?.name ?? 'Chưa phân mùa';
 
       const result = await createFolderAndLog({
@@ -88,6 +97,7 @@ export const createScheduleWithSideEffects = async (
         location: full.location,
         leadPhotographer: leadName,
         supportPhotographers: supportNames,
+        videographer: videographerName,
         contractUrl: full.customer?.contract?.url,
         // Cột "Trạng thái" trên Sheet: lịch huỷ → "Đã huỷ", còn lại là trạng thái của lớp
         status:

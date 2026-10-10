@@ -13,9 +13,12 @@ export type ScheduleStatus = (typeof SCHEDULE_STATUSES)[number];
 
 export const EXTERNAL_CREW_CONFIRMATIONS = ['pending', 'confirmed', 'declined'] as const;
 export type ExternalCrewConfirmation = (typeof EXTERNAL_CREW_CONFIRMATIONS)[number];
+/** `video` = thợ quay MV (gói có MV), không tính vào luật một thợ chính. */
+export const EXTERNAL_CREW_ROLES = ['lead', 'support', 'video'] as const;
+export type ExternalCrewRole = (typeof EXTERNAL_CREW_ROLES)[number];
 export interface IExternalCrewAssignment {
   photographer: Types.ObjectId;
-  role: 'lead' | 'support';
+  role: ExternalCrewRole;
   confirmation: ExternalCrewConfirmation;
 }
 
@@ -29,6 +32,8 @@ export interface ISchedule extends Document {
   location?: string;
   leadPhotographer?: Types.ObjectId;
   supportPhotographers: Types.ObjectId[];
+  /** Thợ quay MV nội bộ (role 6). Mỗi lịch tối đa 1 thợ quay: nội bộ HOẶC thợ ngoài role 'video'. */
+  videographer?: Types.ObjectId | null;
   externalCrew: IExternalCrewAssignment[];
   bookedBy?: Types.ObjectId;
   status: ScheduleStatus;
@@ -58,7 +63,7 @@ export interface ISchedule extends Document {
 const externalCrewSchema = new Schema<IExternalCrewAssignment>(
   {
     photographer: { type: Schema.Types.ObjectId, ref: 'ExternalPhotographer', required: true },
-    role: { type: String, enum: ['lead', 'support'], required: true },
+    role: { type: String, enum: EXTERNAL_CREW_ROLES, required: true },
     confirmation: { type: String, enum: EXTERNAL_CREW_CONFIRMATIONS, default: 'pending' },
   },
   { _id: false },
@@ -75,6 +80,7 @@ const scheduleSchema = new Schema<ISchedule>(
     location: { type: String, trim: true },
     leadPhotographer: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     supportPhotographers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    videographer: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     externalCrew: { type: [externalCrewSchema], default: [] },
     bookedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     status: {
@@ -104,6 +110,7 @@ scheduleSchema.index({ season: 1 });
 scheduleSchema.index({ season: 1, shootDate: -1 });
 scheduleSchema.index({ leadPhotographer: 1, shootDate: 1 });
 scheduleSchema.index({ supportPhotographers: 1, shootDate: 1 });
+scheduleSchema.index({ videographer: 1, shootDate: 1 });
 scheduleSchema.index({ 'externalCrew.photographer': 1, shootDate: 1 });
 
 export default mongoose.model<ISchedule>('Schedule', scheduleSchema);

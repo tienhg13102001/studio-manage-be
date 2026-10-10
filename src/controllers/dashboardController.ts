@@ -9,7 +9,8 @@ import { sendResponse } from '../utils/response';
 import { isSaleCollaborator } from '../utils/permissions';
 
 const isPrivileged = (roles: number[]): boolean => roles.some((r) => r === 0 || r === 1);
-const isPhotographer = (roles: number[]): boolean => roles.includes(3);
+// Thợ chụp ảnh (3) hoặc thợ quay phim (6) — chỉ xem lịch mình trong ekip
+const isPhotographer = (roles: number[]): boolean => roles.includes(3) || roles.includes(6);
 
 export const getStats = async (req: Request, res: Response): Promise<void> => {
   const {
@@ -138,13 +139,21 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
     if (filterUserId) {
       scheduleFilter = {
         ...scheduleFilter,
-        $or: [{ leadPhotographer: filterUserId }, { supportPhotographers: filterUserId }],
+        $or: [
+          { leadPhotographer: filterUserId },
+          { supportPhotographers: filterUserId },
+          { videographer: filterUserId },
+        ],
       };
     } else if (!privileged && isPhotographer(userRoles)) {
       const selfId = req.user!._id;
       scheduleFilter = {
         ...scheduleFilter,
-        $or: [{ leadPhotographer: selfId }, { supportPhotographers: selfId }],
+        $or: [
+          { leadPhotographer: selfId },
+          { supportPhotographers: selfId },
+          { videographer: selfId },
+        ],
       };
     }
 
@@ -159,6 +168,7 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
           populate: { path: 'schoolId', select: 'name address' },
         })
         .populate('leadPhotographer', 'name username')
+        .populate('videographer', 'name username')
         .populate('externalCrew.photographer', 'name')
         .sort({ shootDate: 1 })
         .limit(10)

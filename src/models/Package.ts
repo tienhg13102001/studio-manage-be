@@ -9,6 +9,8 @@ export interface IPackage extends Document {
   editingScope?: 'full' | 'partial';
   deliveryDays?: number;
   studentsPerCrew?: number;
+  /** Gói có quay MV kỷ yếu (vd: Vip 2, Luxury) → mỗi lịch cần đúng 1 thợ quay */
+  hasMv?: boolean;
   description?: string;
   isPopular?: boolean;
 }
@@ -23,6 +25,7 @@ const packageSchema = new Schema<IPackage>(
     editingScope: { type: String, enum: ['full', 'partial'], default: 'full' },
     deliveryDays: { type: Number },
     studentsPerCrew: { type: Number },
+    hasMv: { type: Boolean, default: false },
     description: { type: String, trim: true },
     isPopular: { type: Boolean, default: false },
   },

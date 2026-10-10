@@ -96,7 +96,15 @@ const parseContractBody = (body: Record<string, unknown>): ICustomerContract | s
   const depositAmount = nullableAmount('depositAmount');
   const crewCount = nullableCount('crewCount');
   const crewCountSystem = nullableCount('crewCountSystem');
-  for (const v of [total, pricePerMember, depositAmount, crewCount, crewCountSystem]) {
+  const videoCrewCount = nullableCount('videoCrewCount');
+  for (const v of [
+    total,
+    pricePerMember,
+    depositAmount,
+    crewCount,
+    crewCountSystem,
+    videoCrewCount,
+  ]) {
     if (typeof v === 'string') return v;
   }
 
@@ -156,6 +164,7 @@ const parseContractBody = (body: Record<string, unknown>): ICustomerContract | s
     extraServices,
     crewCount: crewCount as number | null,
     crewCountSystem: crewCountSystem as number | null,
+    videoCrewCount: videoCrewCount as number | null,
     depositAmount: depositAmount as number | null,
     depositSyncedAt,
   };
@@ -272,12 +281,12 @@ export const saveContract = async (req: Request, res: Response): Promise<void> =
         customer: customer._id,
         status: { $ne: 'cancelled' },
       })
-        .select('leadPhotographer supportPhotographers')
+        .select('leadPhotographer supportPhotographers videographer')
         .lean();
       const ids = [
         ...new Set(
           schedules
-            .flatMap((s) => [s.leadPhotographer, ...(s.supportPhotographers ?? [])])
+            .flatMap((s) => [s.leadPhotographer, ...(s.supportPhotographers ?? []), s.videographer])
             .filter(Boolean)
             .map(String),
         ),

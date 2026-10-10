@@ -18,7 +18,7 @@ router.post('/feedback', feedbackController.submit);
 router.get('/packages', async (_req: Request, res: Response): Promise<void> => {
   const packages = await Package.find({})
     .select(
-      'name pricePerMember duration crewRatio editingScope deliveryDays studentsPerCrew description costumes isPopular',
+      'name pricePerMember duration crewRatio editingScope deliveryDays studentsPerCrew hasMv description costumes isPopular',
     )
     .populate('costumes', 'name')
     .sort({ pricePerMember: 1 });
@@ -77,81 +77,78 @@ router.post('/students', async (req: Request, res: Response): Promise<void> => {
 });
 
 // Get shoot schedule by class (public, minimal fields)
-router.get(
-  '/schedules/customer/:customer',
-  async (req: Request, res: Response): Promise<void> => {
-    if (!isValidObjectId(req.params.customer)) {
-      sendResponse(res, 400, false, 'customer không hợp lệ');
-      return;
-    }
-    // Ưu tiên lịch đang áp dụng (mới nhất); chỉ trả lịch đã huỷ khi lớp không còn lịch nào khác
-    const scheduleId = await findPreferredScheduleId(req.params.customer);
-    if (!scheduleId) {
-      sendResponse(res, 200, true, 'OK', null);
-      return;
-    }
-    const schedule = await Schedule.findById(scheduleId)
-      .select('shootDate startTime endTime location status package customer costumes')
-      .populate('costumes', '_id name description gender type createdAt')
-      .populate({
-        path: 'package',
-        select: 'name',
-      })
-      .populate({
-        path: 'customer',
-        select: 'className schoolId',
-        populate: { path: 'schoolId', select: 'name' },
-      })
-      .lean<{
-        _id: Types.ObjectId;
-        shootDate: Date;
-        startTime?: string;
-        endTime?: string;
-        location?: string;
-        status: PublicScheduleResponse['status'];
-        customer: {
-          _id: Types.ObjectId;
-          className: string;
-          schoolId?: { _id: Types.ObjectId; name: string } | null;
-        } | null;
-        package: {
-          _id: Types.ObjectId;
-          name: string;
-        } | null;
-        costumes: CostumeDto[];
-      } | null>();
-
-    // Lớp đã bị xoá (populate trả null) → coi như chưa có lịch
-    if (!schedule || !schedule.customer) {
-      sendResponse(res, 200, true, 'OK', null);
-      return;
-    }
-
-    const response: PublicScheduleResponse = {
-      _id: String(schedule._id),
-      shootDate: new Date(schedule.shootDate).toISOString(),
-      startTime: schedule.startTime,
-      endTime: schedule.endTime,
-      location: schedule.location,
-      status: schedule.status === 'cancelled' ? 'cancelled' : 'active',
-      costumes: schedule.costumes,
+router.get('/schedules/customer/:customer', async (req: Request, res: Response): Promise<void> => {
+  if (!isValidObjectId(req.params.customer)) {
+    sendResponse(res, 400, false, 'customer không hợp lệ');
+    return;
+  }
+  // Ưu tiên lịch đang áp dụng (mới nhất); chỉ trả lịch đã huỷ khi lớp không còn lịch nào khác
+  const scheduleId = await findPreferredScheduleId(req.params.customer);
+  if (!scheduleId) {
+    sendResponse(res, 200, true, 'OK', null);
+    return;
+  }
+  const schedule = await Schedule.findById(scheduleId)
+    .select('shootDate startTime endTime location status package customer costumes')
+    .populate('costumes', '_id name description gender type createdAt')
+    .populate({
+      path: 'package',
+      select: 'name hasMv',
+    })
+    .populate({
+      path: 'customer',
+      select: 'className schoolId',
+      populate: { path: 'schoolId', select: 'name' },
+    })
+    .lean<{
+      _id: Types.ObjectId;
+      shootDate: Date;
+      startTime?: string;
+      endTime?: string;
+      location?: string;
+      status: PublicScheduleResponse['status'];
       customer: {
-        _id: String(schedule.customer._id),
-        className: schedule.customer.className,
-        schoolId: schedule.customer.schoolId
-          ? { _id: String(schedule.customer.schoolId._id), name: schedule.customer.schoolId.name }
-          : null,
-      },
-      package: schedule.package
-        ? {
-            _id: String(schedule.package._id),
-            name: schedule.package.name,
-          }
-        : null,
-    };
+        _id: Types.ObjectId;
+        className: string;
+        schoolId?: { _id: Types.ObjectId; name: string } | null;
+      } | null;
+      package: {
+        _id: Types.ObjectId;
+        name: string;
+      } | null;
+      costumes: CostumeDto[];
+    } | null>();
 
-    sendResponse(res, 200, true, 'OK', response);
-  },
-);
+  // Lớp đã bị xoá (populate trả null) → coi như chưa có lịch
+  if (!schedule || !schedule.customer) {
+    sendResponse(res, 200, true, 'OK', null);
+    return;
+  }
+
+  const response: PublicScheduleResponse = {
+    _id: String(schedule._id),
+    shootDate: new Date(schedule.shootDate).toISOString(),
+    startTime: schedule.startTime,
+    endTime: schedule.endTime,
+    location: schedule.location,
+    status: schedule.status === 'cancelled' ? 'cancelled' : 'active',
+    costumes: schedule.costumes,
+    customer: {
+      _id: String(schedule.customer._id),
+      className: schedule.customer.className,
+      schoolId: schedule.customer.schoolId
+        ? { _id: String(schedule.customer.schoolId._id), name: schedule.customer.schoolId.name }
+        : null,
+    },
+    package: schedule.package
+      ? {
+          _id: String(schedule.package._id),
+          name: schedule.package.name,
+        }
+      : null,
+  };
+
+  sendResponse(res, 200, true, 'OK', response);
+});
 
 export default router;

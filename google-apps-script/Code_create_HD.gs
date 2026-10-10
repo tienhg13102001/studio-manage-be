@@ -189,6 +189,11 @@ function doPost(e) {
     let crewCount = (data.crewCount !== null && data.crewCount !== undefined && data.crewCount !== "" && isFinite(sentCrewCount) && sentCrewCount >= 0)
       ? sentCrewCount
       : (calcCrewCount(totalStudents, studentsPerCrew) || 0);
+    // Thợ quay MV: gói có quay MV kỷ yếu → 1 thợ quay/lớp (ưu tiên số gửi từ hệ thống)
+    let sentVideoCrewCount = Number(data.videoCrewCount);
+    let videoCrewCount = (data.videoCrewCount !== null && data.videoCrewCount !== undefined && data.videoCrewCount !== "" && isFinite(sentVideoCrewCount) && sentVideoCrewCount >= 0)
+      ? sentVideoCrewCount
+      : ((data.package && data.package.hasMv) ? 1 : 0);
 
     let printedPhotosCount = 2 * totalStudents;
 
@@ -251,6 +256,7 @@ function doPost(e) {
     body.replaceText("{{totalMale}}", totalMale.toString());
     body.replaceText("{{totalFemale}}", totalFemale.toString());
     body.replaceText("{{crewCount}}", crewCount.toString());
+    body.replaceText("{{videoCrewCount}}", videoCrewCount.toString());
     body.replaceText("{{printedPhotosCount}}", printedPhotosCount.toString());
     body.replaceText("{{totalAmount}}", formattedTotalAmount);
     body.replaceText("{{totalAmountWords}}", totalAmountWords);

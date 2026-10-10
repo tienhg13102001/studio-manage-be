@@ -45,6 +45,8 @@ export interface ICustomerContract {
   extraServices?: IExtraService[];
   crewCount?: number | null;
   crewCountSystem?: number | null;
+  /** Số thợ quay MV in trên hợp đồng (gói có MV) */
+  videoCrewCount?: number | null;
   /** Tiền cọc đang in trên hợp đồng; null = để trống "………". */
   depositAmount?: number | null;
   /** Lần cuối ô tiền cọc được điền số tiền. */
@@ -67,6 +69,7 @@ const contractSchema = new Schema<ICustomerContract>(
     extraServices: { type: [extraServiceSchema], default: [] },
     crewCount: { type: Number, default: null },
     crewCountSystem: { type: Number, default: null },
+    videoCrewCount: { type: Number, default: null },
     depositAmount: { type: Number, default: null },
     depositSyncedAt: { type: Date, default: null },
     createdAt: { type: Date, default: null },

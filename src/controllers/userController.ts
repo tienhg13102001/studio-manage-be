@@ -9,6 +9,13 @@ export const getPhotographers = async (_req: Request, res: Response): Promise<vo
   sendResponse(res, 200, true, 'OK', users);
 };
 
+export const getVideographers = async (_req: Request, res: Response): Promise<void> => {
+  const users = await User.find({ roles: { $in: [6] }, isActive: true })
+    .select('_id username name roles')
+    .sort({ username: 1 });
+  sendResponse(res, 200, true, 'OK', users);
+};
+
 export const getSales = async (_req: Request, res: Response): Promise<void> => {
   const users = await User.find({ roles: { $in: [2, 4] }, isActive: true })
     .select('_id username name roles')

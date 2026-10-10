@@ -238,8 +238,10 @@ export const getStatusCounts = async (req: Request, res: Response): Promise<void
 /** Người đã tạo lớp (trong phạm vi user được xem) — options cho bộ lọc "Người tạo". */
 export const getCreators = async (req: Request, res: Response): Promise<void> => {
   const scope = customerScope(req);
-  const ids = await Customer.find({ createdBy: { $ne: null }, ...(scope ? { $and: [scope] } : {}) })
-    .distinct('createdBy');
+  const ids = await Customer.find({
+    createdBy: { $ne: null },
+    ...(scope ? { $and: [scope] } : {}),
+  }).distinct('createdBy');
   const users = await User.find({ _id: { $in: ids } })
     .select(`_id ${USER_REF_FIELDS}`)
     .sort({ name: 1, username: 1 })
@@ -380,6 +382,7 @@ interface StatusBody {
     location?: string;
     leadPhotographer?: string;
     supportPhotographers?: string[];
+    videographer?: string;
   };
 }
 
@@ -453,12 +456,21 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
         return;
       }
       let photographerOk = false;
-      if (current === 'scheduled' && target === 'shot' && user.roles.includes(3)) {
+      // Thợ chụp (3) / thợ quay (6) có tên trong ekip lịch đang áp dụng được chuyển sang "Đã chụp"
+      if (
+        current === 'scheduled' &&
+        target === 'shot' &&
+        (user.roles.includes(3) || user.roles.includes(6))
+      ) {
         photographerOk = Boolean(
           await Schedule.exists({
             customer: customer._id,
             status: { $ne: 'cancelled' },
-            $or: [{ leadPhotographer: user._id }, { supportPhotographers: user._id }],
+            $or: [
+              { leadPhotographer: user._id },
+              { supportPhotographers: user._id },
+              { videographer: user._id },
+            ],
           }),
         );
       }
@@ -561,6 +573,18 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
         .lean();
       if (!active.length && body.schedule) {
         const s = body.schedule;
+        // Thợ quay chỉ nhận người dùng "Thợ quay phim" đang hoạt động, không trùng thợ chụp
+        let videographer: string | null = null;
+        if (s.videographer) {
+          const crew = [s.leadPhotographer, ...(s.supportPhotographers ?? [])].map(String);
+          const ok =
+            typeof s.videographer === 'string' &&
+            mongoose.isValidObjectId(s.videographer) &&
+            !crew.includes(s.videographer) &&
+            (await User.exists({ _id: s.videographer, roles: 6, isActive: true }));
+          if (ok) videographer = s.videographer;
+          else warnings.push('Thợ quay không hợp lệ — lịch chụp được tạo không kèm thợ quay');
+        }
         schedule = await createScheduleWithSideEffects({
           customer: customer._id,
           package: s.package || null,
@@ -570,6 +594,7 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
           location: s.location,
           leadPhotographer: s.leadPhotographer || null,
           supportPhotographers: (s.supportPhotographers ?? []).filter(Boolean),
+          videographer,
           bookedBy: user._id,
         });
       } else if (!active.length) {

@@ -1,7 +1,7 @@
 import type { UserRole } from '../models/User';
 
 /**
- * Vai trò được phân công / đổi ekip thợ chụp (leadPhotographer, supportPhotographers).
+ * Vai trò được phân công / đổi ekip thợ chụp (leadPhotographer, supportPhotographers, videographer).
  * Hiện chỉ Superadmin & Admin; vai trò "Điều phối" sẽ được thêm vào đây sau.
  * Giữ đồng bộ với frontend/src/utils/permissions.ts.
  */
@@ -22,28 +22,38 @@ export const isSaleCollaborator = (
 
 const idOrNull = (v: unknown): string | null => (v ? String(v) : null);
 
-/** Body gửi ekip khác rỗng (thợ chính hoặc ít nhất một thợ phụ) — dùng khi tạo lịch. */
+/** Body gửi ekip khác rỗng (thợ chính, thợ quay hoặc ít nhất một thợ phụ) — dùng khi tạo lịch. */
 export const hasCrew = (body: {
   leadPhotographer?: unknown;
   supportPhotographers?: unknown;
+  videographer?: unknown;
   externalCrew?: unknown;
 }) =>
   !!idOrNull(body.leadPhotographer) ||
+  !!idOrNull(body.videographer) ||
   (Array.isArray(body.supportPhotographers) && body.supportPhotographers.some(Boolean)) ||
   (Array.isArray(body.externalCrew) && body.externalCrew.length > 0);
 
 /**
  * Body cập nhật có đổi ekip so với lịch đang lưu không. Chỉ xét field client thực sự gửi
- * (`leadPhotographer` có trong body, `supportPhotographers` là mảng).
+ * (`leadPhotographer` / `videographer` có trong body, `supportPhotographers` là mảng).
  */
 export const crewChanged = (
   body: Record<string, unknown>,
-  prev: { leadPhotographer?: unknown; supportPhotographers?: unknown[]; externalCrew?: unknown[] },
+  prev: {
+    leadPhotographer?: unknown;
+    supportPhotographers?: unknown[];
+    videographer?: unknown;
+    externalCrew?: unknown[];
+  },
 ): boolean => {
   if (
     'leadPhotographer' in body &&
     idOrNull(body.leadPhotographer) !== idOrNull(prev.leadPhotographer)
   ) {
+    return true;
+  }
+  if ('videographer' in body && idOrNull(body.videographer) !== idOrNull(prev.videographer)) {
     return true;
   }
   if (Array.isArray(body.supportPhotographers)) {
