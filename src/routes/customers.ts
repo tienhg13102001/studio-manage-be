@@ -14,6 +14,7 @@ router.param('id', requireCustomerAccess((req) => req.params.id));
 
 router.route('/').get(asyncHandler(c.getAll)).post(asyncHandler(c.create));
 router.get('/status-counts', asyncHandler(c.getStatusCounts));
+router.get('/creators', asyncHandler(c.getCreators));
 router.get('/:id/activities', asyncHandler(c.getActivities));
 router.post('/:id/notes', asyncHandler(c.addNote));
 router.post('/:id/status', asyncHandler(c.changeStatus));

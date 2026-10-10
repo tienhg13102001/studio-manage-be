@@ -10,6 +10,7 @@ import Schedule, { ISchedule } from '../models/Schedule';
 import Transaction, { ITransaction } from '../models/Transaction';
 import Category from '../models/Category';
 import School, { toSchoolSearchKey } from '../models/School';
+import User from '../models/User';
 import { createScheduleWithSideEffects } from '../services/scheduleService';
 import { notifyByRoles } from '../services/telegramService';
 import { resolveCurrentSeason } from '../utils/seasonCache';
@@ -110,6 +111,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const season = queryStr(req.query.season);
   const status = queryStr(req.query.status);
   const assignedSale = queryStr(req.query.assignedSale);
+  const createdBy = queryStr(req.query.createdBy);
   const schoolId = queryStr(req.query.schoolId);
 
   const query: Record<string, unknown> = {};
@@ -155,6 +157,14 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
     }
     query.assignedSale = sale;
   }
+  if (createdBy) {
+    const creator = resolveSaleParam(req, createdBy);
+    if (!creator) {
+      sendResponse(res, 400, false, 'createdBy không hợp lệ');
+      return;
+    }
+    query.createdBy = creator;
+  }
   // CTV sale chỉ thấy lớp mình tạo / phụ trách
   const scope = customerScope(req);
   if (scope) query.$and = [scope];
@@ -162,6 +172,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const [data, total] = await Promise.all([
     Customer.find(query)
       .populate('assignedSale', USER_REF_FIELDS)
+      .populate('createdBy', USER_REF_FIELDS)
       .populate('schoolId', SCHOOL_REF_FIELDS)
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -175,6 +186,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
 export const getStatusCounts = async (req: Request, res: Response): Promise<void> => {
   const season = queryStr(req.query.season);
   const assignedSale = queryStr(req.query.assignedSale);
+  const createdBy = queryStr(req.query.createdBy);
   const schoolId = queryStr(req.query.schoolId);
   const match: Record<string, unknown> = {};
   if (schoolId) {
@@ -199,6 +211,14 @@ export const getStatusCounts = async (req: Request, res: Response): Promise<void
     }
     match.assignedSale = sale;
   }
+  if (createdBy) {
+    const creator = resolveSaleParam(req, createdBy);
+    if (!creator) {
+      sendResponse(res, 400, false, 'createdBy không hợp lệ');
+      return;
+    }
+    match.createdBy = creator;
+  }
   const scope = customerScope(req);
   if (scope) match.$and = [scope];
   const rows = await Customer.aggregate<{ _id: string; count: number }>([
@@ -215,9 +235,22 @@ export const getStatusCounts = async (req: Request, res: Response): Promise<void
   sendResponse(res, 200, true, 'OK', counts);
 };
 
+/** Người đã tạo lớp (trong phạm vi user được xem) — options cho bộ lọc "Người tạo". */
+export const getCreators = async (req: Request, res: Response): Promise<void> => {
+  const scope = customerScope(req);
+  const ids = await Customer.find({ createdBy: { $ne: null }, ...(scope ? { $and: [scope] } : {}) })
+    .distinct('createdBy');
+  const users = await User.find({ _id: { $in: ids } })
+    .select(`_id ${USER_REF_FIELDS}`)
+    .sort({ name: 1, username: 1 })
+    .lean();
+  sendResponse(res, 200, true, 'OK', users);
+};
+
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const customer = await Customer.findById(req.params.id)
     .populate('assignedSale', USER_REF_FIELDS)
+    .populate('createdBy', USER_REF_FIELDS)
     .populate('schoolId', SCHOOL_REF_FIELDS)
     .lean();
   if (!customer) {
@@ -245,6 +278,7 @@ export const create = async (req: Request, res: Response): Promise<void> => {
   const created = await Customer.create(payload);
   const customer = await Customer.findById(created._id)
     .populate('assignedSale', USER_REF_FIELDS)
+    .populate('createdBy', USER_REF_FIELDS)
     .populate('schoolId', SCHOOL_REF_FIELDS)
     .lean();
   sendResponse(res, 201, true, 'Tạo khách hàng thành công', customer);
@@ -266,6 +300,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     { new: true, runValidators: true },
   )
     .populate('assignedSale', USER_REF_FIELDS)
+    .populate('createdBy', USER_REF_FIELDS)
     .populate('schoolId', SCHOOL_REF_FIELDS)
     .lean();
   if (!customer) {
@@ -603,6 +638,7 @@ export const changeStatus = async (req: Request, res: Response): Promise<void> =
 
   const updated = await Customer.findById(customer._id)
     .populate('assignedSale', USER_REF_FIELDS)
+    .populate('createdBy', USER_REF_FIELDS)
     .populate('schoolId', SCHOOL_REF_FIELDS)
     .lean();
 
