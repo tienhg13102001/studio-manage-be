@@ -329,7 +329,7 @@ export const getAll = async (req: Request, res: Response): Promise<void> => {
   const skip = (Number(page) - 1) * Number(limit);
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit assignedSale driveFolderUrl contract.url contract.docId createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit assignedSale driveFolderUrl contract.url contract.docId contract.crewCount createdAt';
   const [data, total, statusCounts] = await Promise.all([
     Schedule.find(filter)
       .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
@@ -399,7 +399,7 @@ export const getBusy = async (req: Request, res: Response): Promise<void> => {
 export const getByCustomer = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId contract.crewCount createdAt';
   if (!isValidObjectId(req.params.customer)) {
     sendResponse(res, 400, false, 'customer không hợp lệ');
     return;
@@ -423,7 +423,7 @@ export const getByCustomer = async (req: Request, res: Response): Promise<void> 
 export const getOne = async (req: Request, res: Response): Promise<void> => {
   const USER_FIELDS = '_id username name roles isActive createdAt';
   const CUSTOMER_FIELDS =
-    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId createdAt';
+    '_id className schoolId contactName contactPhone contactAddress total totalMale totalFemale notes status deposit driveFolderUrl contract.url contract.docId contract.crewCount createdAt';
   const schedule = await Schedule.findById(req.params.id)
     .populate({ path: 'customer', select: CUSTOMER_FIELDS, populate: SCHOOL_POPULATE })
     .populate({ path: 'package', populate: { path: 'costumes' } })
