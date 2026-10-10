@@ -9,7 +9,12 @@ const TIMEOUT_MS = 45_000;
 const callUpdateDeposit = async (
   url: string,
   secret: string,
-  payload: { documentId: string; depositAmount: number | null; totalPayment: number },
+  payload: {
+    documentId: string;
+    depositAmount: number | null;
+    depositDate: string | null;
+    totalPayment: number;
+  },
 ): Promise<{ ok: true } | { ok: false; reason: string }> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -63,7 +68,16 @@ const runSync = async (
     if (!customer || !contract?.docId) return result;
     const raw = Number(customer.deposit?.amount);
     const amount = Number.isFinite(raw) && raw > 0 ? raw : null;
-    if ((contract.depositAmount ?? null) === amount) return result;
+    const rawDate =
+      amount !== null && customer.deposit?.date ? new Date(customer.deposit.date) : null;
+    const date = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate : null;
+    const dayKey = (d?: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+    if (
+      (contract.depositAmount ?? null) === amount &&
+      dayKey(contract.depositDate) === dayKey(date)
+    ) {
+      return result;
+    }
     if (!url || !secret) {
       console.warn(
         '[Contract] CONTRACT_SCRIPT_URL / CONTRACT_SCRIPT_SECRET chưa cấu hình → bỏ qua cập nhật tiền cọc hợp đồng',
@@ -74,6 +88,7 @@ const runSync = async (
     const res = await callUpdateDeposit(url, secret, {
       documentId: contract.docId,
       depositAmount: amount,
+      depositDate: date ? date.toISOString() : null,
       totalPayment: Number(contract.total) || 0,
     });
     if (res.ok) {
@@ -84,6 +99,7 @@ const runSync = async (
           $set: {
             'contract.depositAmount': amount,
             'contract.depositSyncedAt': amount === null ? null : new Date(),
+            'contract.depositDate': date,
           },
         },
       );
@@ -113,7 +129,7 @@ const runSync = async (
 const inFlight = new Map<string, Promise<ContractSyncResult>>();
 
 /**
- * Sau khi tiền cọc của lớp thay đổi / vừa lưu hợp đồng: cập nhật ô "Tiền cọc" + "Đợt 2" trên
+ * Sau khi tiền cọc của lớp thay đổi / vừa lưu hợp đồng: cập nhật ô "Tiền cọc" + "Đợt 2" + ngày cọc trên
  * hợp đồng của lớp (`customer.contract`, cần `docId`) nếu số tiền đang in khác tiền cọc hiện tại.
  * Không bao giờ throw — lỗi được log và ghi vào lịch sử chăm sóc lớp.
  * Cần env CONTRACT_SCRIPT_URL + CONTRACT_SCRIPT_SECRET; thiếu → bỏ qua (cảnh báo).

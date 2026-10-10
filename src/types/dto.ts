@@ -76,6 +76,7 @@ export interface CustomerContractDto {
   /** Tiền cọc đang in; null = để trống "………" */
   depositAmount?: number | null;
   depositSyncedAt?: string | null;
+  depositDate?: string | null;
   createdAt?: string | null;
   createdBy?: string | null;
   migratedFromSchedule?: string | null;

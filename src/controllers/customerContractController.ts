@@ -129,6 +129,11 @@ const parseContractBody = (body: Record<string, unknown>): ICustomerContract | s
     depositSyncedAt = toDate(body.depositSyncedAt);
     if (!depositSyncedAt) return 'depositSyncedAt không hợp lệ';
   }
+  let depositDate: Date | null = null;
+  if (body.depositDate !== undefined && body.depositDate !== null) {
+    depositDate = toDate(body.depositDate);
+    if (!depositDate) return 'depositDate không hợp lệ';
+  }
 
   const rawServices = body.extraServices ?? [];
   if (!Array.isArray(rawServices) || rawServices.length > MAX_EXTRA_SERVICES) {
@@ -167,6 +172,7 @@ const parseContractBody = (body: Record<string, unknown>): ICustomerContract | s
     videoCrewCount: videoCrewCount as number | null,
     depositAmount: depositAmount as number | null,
     depositSyncedAt,
+    depositDate,
   };
 };
 

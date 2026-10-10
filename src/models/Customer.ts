@@ -51,6 +51,8 @@ export interface ICustomerContract {
   depositAmount?: number | null;
   /** Lần cuối ô tiền cọc được điền số tiền. */
   depositSyncedAt?: Date | null;
+  /** Ngày cọc đang in trên hợp đồng; null = để trống. */
+  depositDate?: Date | null;
   createdAt?: Date | null;
   createdBy?: Types.ObjectId | null;
   /** Lịch chụp nguồn khi được chuyển từ dữ liệu cũ (migration). */
@@ -72,6 +74,7 @@ const contractSchema = new Schema<ICustomerContract>(
     videoCrewCount: { type: Number, default: null },
     depositAmount: { type: Number, default: null },
     depositSyncedAt: { type: Date, default: null },
+    depositDate: { type: Date, default: null },
     createdAt: { type: Date, default: null },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     migratedFromSchedule: { type: Schema.Types.ObjectId, ref: 'Schedule', default: null },

@@ -17,6 +17,9 @@ const BLANK_AMOUNT = "………………";
 // Tên Named Range đánh dấu các ô để cập nhật lại sau (action updateDeposit)
 const RANGE_DEPOSIT = "yume_deposit";
 const RANGE_REMAINING = "yume_remaining";
+const RANGE_DEPOSIT_DATE = "yume_deposit_date";
+// Ngày cọc khi lớp chưa cọc
+const BLANK_DATE = "ngày …… tháng …… năm ……";
 
 function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
@@ -35,6 +38,17 @@ function depositTexts(depositAmount, totalPayment) {
   let total = Number(totalPayment) || 0;
   let remaining = total > depositAmount ? total - depositAmount : 0;
   return { deposit: formatVndDoc(depositAmount), remaining: formatVndDoc(remaining) };
+}
+
+/** "ngày 10 tháng 10 năm 2026" theo giờ Việt Nam; chưa cọc / ngày không hợp lệ → BLANK_DATE. */
+function depositDateText(depositAmount, depositDate) {
+  if (depositAmount === null || !depositDate) return BLANK_DATE;
+  let d = new Date(depositDate);
+  if (isNaN(d.getTime())) return BLANK_DATE;
+  let tz = "Asia/Ho_Chi_Minh";
+  return "ngày " + Utilities.formatDate(d, tz, "dd") +
+    " tháng " + Utilities.formatDate(d, tz, "MM") +
+    " năm " + Utilities.formatDate(d, tz, "yyyy");
 }
 
 /**
@@ -117,7 +131,7 @@ function updateTrackedRanges(doc, rangeName, value) {
 
 /**
  * action "updateDeposit": cập nhật ô Tiền cọc + Đợt 2 trong hợp đồng ĐÃ TẠO
- * { action, documentId, depositAmount, totalPayment, secret }.
+ * { action, documentId, depositAmount, depositDate, totalPayment, secret }.
  * BẮT BUỘC Script Property SECRET và `secret` phải khớp (thiếu → từ chối).
  */
 function handleUpdateDeposit(data) {
@@ -144,6 +158,8 @@ function handleUpdateDeposit(data) {
     let updated =
       updateTrackedRanges(doc, RANGE_DEPOSIT, texts.deposit) +
       updateTrackedRanges(doc, RANGE_REMAINING, texts.remaining);
+    // Hợp đồng tạo trước khi có {{depositDate}} không có range này → bỏ qua, không tính lỗi
+    updateTrackedRanges(doc, RANGE_DEPOSIT_DATE, depositDateText(depositAmount, data.depositDate));
     doc.saveAndClose();
     if (!updated) return jsonOut({ success: false, reason: "empty_ranges" });
     return jsonOut({ success: true, updated: updated, depositAmount: depositAmount });
@@ -276,6 +292,7 @@ function doPost(e) {
     // Làm cuối cùng để các thao tác khác (nhân/xoá hàng bảng…) không làm mất/lệch range.
     fillTrackedPlaceholder(doc, body, "{{depositAmount}}", amountTexts.deposit, RANGE_DEPOSIT);
     fillTrackedPlaceholder(doc, body, "{{remainingAmount}}", amountTexts.remaining, RANGE_REMAINING);
+    fillTrackedPlaceholder(doc, body, "{{depositDate}}", depositDateText(depositAmount, data.depositDate), RANGE_DEPOSIT_DATE);
 
     doc.saveAndClose();
 
