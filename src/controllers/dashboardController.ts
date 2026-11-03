@@ -157,7 +157,13 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
       };
     }
 
-    const upcomingFilter: Record<string, unknown> = { ...scheduleFilter, shootDate: { $gte: now } };
+    // shootDate lưu ở 00:00 UTC của ngày chụp → lấy từ đầu "hôm nay" theo giờ VN để lịch hôm nay không bị rơi.
+    const vnTodayKey = new Date(now.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const startOfToday = new Date(`${vnTodayKey}T00:00:00.000Z`);
+    const upcomingFilter: Record<string, unknown> = {
+      ...scheduleFilter,
+      shootDate: { $gte: startOfToday },
+    };
 
     [scheduleCount, upcomingSchedules] = await Promise.all([
       Schedule.countDocuments(scheduleFilter),
@@ -170,8 +176,8 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
         .populate('leadPhotographer', 'name username')
         .populate('videographer', 'name username')
         .populate('externalCrew.photographer', 'name')
-        .sort({ shootDate: 1 })
-        .limit(10)
+        .sort({ shootDate: 1, startTime: 1 })
+        .limit(40)
         .lean<UpcomingScheduleDto[]>(),
     ]);
   }
