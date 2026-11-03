@@ -9,6 +9,8 @@ const NUMBER_FIELDS = [
   ['pricePerMember', 'Giá / học sinh'],
   ['students', 'Sĩ số'],
   ['crewCount', 'Số thợ'],
+  ['leadCount', 'Số thợ lead'],
+  ['leadRate', 'Tiền công / thợ lead'],
   ['crewRate', 'Tiền công / thợ'],
   ['videoCrewCount', 'Số thợ quay'],
   ['videoCrewRate', 'Tiền công / thợ quay'],
@@ -22,7 +24,7 @@ const toAmount = (v: unknown): number | null => {
   return Number.isFinite(n) && n >= 0 ? n : null;
 };
 
-const parseBody = async (body: Record<string, unknown>) => {
+export const parseProfitScenarioBody = async (body: Record<string, unknown>) => {
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   if (!name) return { error: 'Vui lòng nhập tên kịch bản' };
   const value: Record<string, unknown> = { name };
@@ -30,12 +32,18 @@ const parseBody = async (body: Record<string, unknown>) => {
     const n = toAmount(body[key]);
     if (n === null) return { error: `${label} phải là số không âm` };
     if (
-      (key === 'students' || key === 'crewCount' || key === 'videoCrewCount') &&
+      (key === 'students' ||
+        key === 'crewCount' ||
+        key === 'leadCount' ||
+        key === 'videoCrewCount') &&
       !Number.isInteger(n)
     ) {
       return { error: `${label} phải là số nguyên` };
     }
     value[key] = n;
+  }
+  if ((value.leadCount as number) > (value.crewCount as number)) {
+    return { error: 'Số thợ lead không được vượt quá tổng số thợ' };
   }
   const pkg = body.package;
   if (pkg === '' || pkg == null) value.package = null;
@@ -62,6 +70,8 @@ const parseBody = async (body: Record<string, unknown>) => {
   for (const [key, label] of [
     ['printItems', 'In ấn'],
     ['costumeItems', 'Trang phục'],
+    ['postProductionItems', 'Hậu kỳ'],
+    ['accessoryItems', 'Phụ kiện'],
     ['travelItems', 'Đi lại & ăn uống'],
   ] as const) {
     const raw = body[key];
@@ -175,7 +185,7 @@ export const getAll = async (_req: Request, res: Response): Promise<void> => {
 };
 
 export const create = async (req: Request, res: Response): Promise<void> => {
-  const parsed = await parseBody(req.body ?? {});
+  const parsed = await parseProfitScenarioBody(req.body ?? {});
   if (parsed.error) {
     sendResponse(res, 400, false, parsed.error);
     return;
@@ -194,7 +204,7 @@ export const update = async (req: Request, res: Response): Promise<void> => {
     sendResponse(res, 400, false, 'Kịch bản không hợp lệ');
     return;
   }
-  const parsed = await parseBody(req.body ?? {});
+  const parsed = await parseProfitScenarioBody(req.body ?? {});
   if (parsed.error) {
     sendResponse(res, 400, false, parsed.error);
     return;

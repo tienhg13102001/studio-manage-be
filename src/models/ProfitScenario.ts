@@ -9,6 +9,8 @@ export interface IProfitScenario extends Document {
   pricePerMember: number;
   students: number;
   crewCount: number;
+  leadCount: number;
+  leadRate: number;
   crewRate: number;
   /** Thợ quay MV (gói có hasMv). */
   videoCrewCount: number;
@@ -18,6 +20,8 @@ export interface IProfitScenario extends Document {
   costumeCost: number;
   printItems: ICostItem[];
   costumeItems: ICostItem[];
+  postProductionItems: ICostItem[];
+  accessoryItems: ICostItem[];
   travelItems: ICostItem[];
   otherCosts: { label: string; amount: number }[];
   createdBy?: Types.ObjectId | null;
@@ -57,6 +61,8 @@ const profitScenarioSchema = new Schema<IProfitScenario>(
     pricePerMember: { type: Number, min: 0, default: 0 },
     students: { type: Number, min: 0, default: 0 },
     crewCount: { type: Number, min: 0, default: 0 },
+    leadCount: { type: Number, min: 0, default: 0 },
+    leadRate: { type: Number, min: 0, default: 0 },
     crewRate: { type: Number, min: 0, default: 0 },
     videoCrewCount: { type: Number, min: 0, default: 0 },
     videoCrewRate: { type: Number, min: 0, default: 0 },
@@ -64,6 +70,8 @@ const profitScenarioSchema = new Schema<IProfitScenario>(
     costumeCost: { type: Number, min: 0, default: 0 },
     printItems: { type: [costItemSchema], default: [] },
     costumeItems: { type: [costItemSchema], default: [] },
+    postProductionItems: { type: [costItemSchema], default: [] },
+    accessoryItems: { type: [costItemSchema], default: [] },
     travelItems: { type: [costItemSchema], default: [] },
     otherCosts: { type: [otherCostSchema], default: [] },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
